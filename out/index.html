@@ -2166,6 +2166,17 @@ function renderChartDash(){
 /* ===================== PLANTILLA (2 hojas) ===================== */
 function _mkSheet(cols,rows){ const ws=XLSX.utils.aoa_to_sheet([cols,...rows]); ws["!cols"]=cols.map(()=>({wch:24})); return ws; }
 function _notes(list){ const ws=XLSX.utils.aoa_to_sheet(list); ws["!cols"]=[{wch:92}]; return ws; }
+function _saveXlsx(wb, filename){
+  try {
+    const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([wbout], {type:'application/octet-stream'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  } catch(e) { console.error('Error descargando plantilla:', e); alert('Error al descargar: ' + e.message); }
+}
 // PLANTILLA GLOBAL (sin nombres; muestra los valores de FUNCIÓN ORGANIGRAMA como guía)
 function downloadTemplateGlobal(){
   const cols=["Código","Nombre","Puesto Descripción","FUNCIÓN ORGANIGRAMA","Jefe Inmediato","Foto","Niveles Organizacionales","Pasos Salariales","Fecha Ingreso","Fecha Nacimiento"];
@@ -2196,7 +2207,7 @@ function downloadTemplateGlobal(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,_notes(notas),"Instrucciones");
   XLSX.utils.book_append_sheet(wb,_mkSheet(cols,guia),"Global");
-  XLSX.writeFile(wb,"Plantilla_Global_OLO.xlsx"); toast("Plantilla Global descargada");
+  _saveXlsx(wb,"Plantilla_Global_OLO.xlsx"); toast("Plantilla Global descargada");
 }
 // PLANTILLA PAÍS (sin nombres; muestra la estructura como guía)
 function downloadTemplatePais(){
@@ -2226,7 +2237,7 @@ function downloadTemplatePais(){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,_notes(notas),"Instrucciones");
   XLSX.utils.book_append_sheet(wb,_mkSheet(cols,guia),"Pais");
-  XLSX.writeFile(wb,"Plantilla_Pais_OLO.xlsx"); toast("Plantilla País descargada");
+  _saveXlsx(wb,"Plantilla_Pais_OLO.xlsx"); toast("Plantilla País descargada");
 }
 function exportJSON(){ const blob=new Blob([JSON.stringify({model:MODEL,snapshots:SNAPSHOTS,approvals:APPR},null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="organigramas_olo.json"; a.click(); toast("JSON exportado (sin datos confidenciales)"); }
 function onJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d.model)MODEL=d.model; if(d.snapshots)SNAPSHOTS=d.snapshots; if(d.approvals)APPR=d.approvals; if(!MODEL.classificationRules||!MODEL.classificationRules.length)MODEL.classificationRules=initializeOloClassificationRules(); reclassifyAll(); saveAll(); saveAppr(); rebuildAll(); toast("JSON importado"); }catch(err){ toast("JSON inválido"); } }; r.readAsText(f); e.target.value=""; }
