@@ -493,13 +493,23 @@ function generateCountrySet(rows){
 
   MODEL=sv;
   if(!created.length){ toast("No se reconoció una estructura de país en el archivo"); return; }
-  created.forEach(c=>{ c.pais=paisNm; }); CHARTS.push.apply(CHARTS,created); CHART_ID=created[0].id; MODEL=m; saveCharts(); saveModel();
-  setView("dash"); toast("Generados: 1 general, "+nDept+" departamentos, "+nArea+" áreas");
+  created.forEach(c=>{ c.pais=paisNm; });
+  // Conserva los organigramas de OTROS países ya cargados; reemplaza solo los del MISMO país
+  // (por nombre de país). Así se pueden acumular varios países y "Todos" los descarga todos.
+  const sameCountry=ch=>ch.type!=="global" && norm(ch.pais||"")===norm(paisNm||"");
+  CHARTS=CHARTS.filter(ch=>ch.type==="global" || !sameCountry(ch));
+  CHARTS.push.apply(CHARTS,created); CHART_ID=created[0].id; MODEL=m; saveCharts(); saveModel();
+  const totPaises=new Set(CHARTS.filter(c=>c.type!=="global").map(c=>norm(c.pais||"(sin país)"))).size;
+  setView("dash"); toast("Generados: 1 general, "+nDept+" departamentos, "+nArea+" áreas · "+totPaises+" país(es) cargado(s)");
+  return paisNm;
 }
 function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); if(!el)return; if(!CHARTS.length){ el.style.display="none"; return; } el.style.display="";
   const groups=paisOnly?[["country","Vista general"],["department","Departamentos"],["area","Áreas"]]:[["global","Global"],["country","Vista general"],["department","Departamentos"],["area","Áreas"]];
+  // En modo país, si hay varios países cargados, muestra SOLO los organigramas del país actual.
+  let curCountry=null; if(paisOnly){ const cur=CHARTS.find(c=>c.id===CHART_ID); curCountry=cur?norm(cur.pais||""):null; }
+  const inScope=c=>(!paisOnly||c.type==="global"||curCountry==null||norm(c.pais||"")===curCountry);
   let html='<option value="">— Elige un organigrama —</option>';
-  groups.forEach(function(gp){ const items=CHARTS.filter(c=>c.type===gp[0]).sort((a,b)=>(a.name||"").localeCompare(b.name||"","es")); if(!items.length)return;
+  groups.forEach(function(gp){ const items=CHARTS.filter(c=>c.type===gp[0]&&inScope(c)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","es")); if(!items.length)return;
     html+='<optgroup label="'+esc(gp[1])+'">'+items.map(c=>`<option value="${esc(c.id)}" ${CHART_ID===c.id?"selected":""}>${esc(c.name)}</option>`).join("")+'</optgroup>'; });
   el.innerHTML=html; }
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
@@ -1291,10 +1301,12 @@ function rebuildAll(){ applyOrgFunction(); ensureDirector(); attachOrphansToDire
 let DASH={type:"global",country:"",rootPositionId:null,page:0};
 let NAVHIST=[];
 function pushNav(){ NAVHIST.push({chart:CHART_ID,dash:JSON.parse(JSON.stringify(DASH))}); if(NAVHIST.length>60)NAVHIST.shift(); }
-function goBack(){ const gen=CHARTS.find(c=>c.type==="country");
-  if(gen && CHART_ID!==gen.id){ NAVHIST=[]; CHART_ID=gen.id; MODEL=gen.model; saveCharts(); renderDash(); return; }   // Volver = ir al Organigrama General
+function generalChartFor(chartId){ const cur=CHARTS.find(c=>c.id===chartId); const cc=cur?norm(cur.pais||""):null;
+  return CHARTS.find(c=>c.type==="country" && (cc==null||norm(c.pais||"")===cc)) || CHARTS.find(c=>c.type==="country"); }
+function goBack(){ const gen=generalChartFor(CHART_ID);   // Volver = Organigrama General DEL MISMO país
+  if(gen && CHART_ID!==gen.id){ NAVHIST=[]; CHART_ID=gen.id; MODEL=gen.model; saveCharts(); renderDash(); return; }
   const s=NAVHIST.pop(); if(!s){ return; } CHART_ID=s.chart; DASH=s.dash; renderDash(); }
-function updateBackBtn(){ const b=document.getElementById("backBtn"); if(!b)return; const cur=CHARTS.find(x=>x.id===CHART_ID); const gen=CHARTS.find(c=>c.type==="country"); const inPaisSub=cur&&cur.type!=="global"&&(!gen||cur.id!==gen.id); b.style.display=((inPaisSub&&gen)||(!CHART_ID&&NAVHIST.length))?"":"none"; }
+function updateBackBtn(){ const b=document.getElementById("backBtn"); if(!b)return; const cur=CHARTS.find(x=>x.id===CHART_ID); const gen=generalChartFor(CHART_ID); const inPaisSub=cur&&cur.type!=="global"&&(!gen||cur.id!==gen.id); b.style.display=((inPaisSub&&gen)||(!CHART_ID&&NAVHIST.length))?"":"none"; }
 
 function currentViewObject(){
   if(VIEW==="ger") return GER._view;
@@ -1331,8 +1343,12 @@ function renderDash(){
     const chartSel=document.getElementById("chartSel");
     const paisSel=document.getElementById("paisSel"), paisFlag=document.getElementById("paisFlag");
     if(mode==="pais"){ fillChartSel(true); if(chartSel)chartSel.style.display=CHARTS.some(x=>x.type!=="global")?"":"none";
-      const gen=CHARTS.find(x=>x.type==="country"); const pais=(gen&&gen.pais)||SELECTED_COUNTRY||"";
-      if(paisSel){ paisSel.style.display=""; paisSel.value=pais; }
+      const curChart=CHARTS.find(x=>x.id===CHART_ID); const pais=(curChart&&curChart.pais)||SELECTED_COUNTRY||"";
+      if(paisSel){ paisSel.style.display="";
+        const paises=loadedCountries(); const opts=paises.length?paises:(pais?[pais]:[]);
+        paisSel.innerHTML=(opts.length?'':'<option value="">País…</option>')+opts.map(p=>`<option value="${esc(p)}" ${norm(p)===norm(pais)?"selected":""}>${esc(p)}</option>`).join("");
+        paisSel.value=pais;
+      }
       if(paisFlag){ const fs=flagSVG(pais); paisFlag.innerHTML=fs; paisFlag.style.display=fs?"":"none"; }
     }
     else { if(chartSel)chartSel.style.display="none"; if(paisSel)paisSel.style.display="none"; if(paisFlag)paisFlag.style.display="none"; }
@@ -2019,7 +2035,15 @@ function flagSVG(c){ const n=norm(c); const F={
   "guatemala":'<rect width="24" height="16" fill="#4997D0"/><rect width="8" height="16" x="8" fill="#fff"/>'
 }; const g=F[n]; return g?('<svg width="22" height="14" viewBox="0 0 24 16" style="vertical-align:middle;margin-right:5px;border:1px solid #ccc;border-radius:2px">'+g+'</svg>'):''; }
 // Dashboard: fija/actualiza el país de los organigramas de país actuales
-function setChartsCountry(c){ SELECTED_COUNTRY=c||""; CHARTS.forEach(ch=>{ if(ch.type!=="global") ch.pais=SELECTED_COUNTRY; }); saveCharts(); renderDash(); if(SELECTED_COUNTRY)toast("País: "+SELECTED_COUNTRY); }
+// Lista de países realmente cargados (por los organigramas de país existentes)
+function loadedCountries(){ return [...new Set(CHARTS.filter(c=>c.type!=="global").map(c=>(c.pais||"").trim()).filter(Boolean))].sort((a,b)=>norm(a).localeCompare(norm(b),"es")); }
+function setChartsCountry(c){
+  const target=(c||"").trim();
+  // Si el país elegido YA está cargado (varios países coexisten), cambia a su "Organigrama General".
+  const gen=CHARTS.find(ch=>ch.type==="country" && norm(ch.pais||"")===norm(target));
+  if(gen){ SELECTED_COUNTRY=target; NAVHIST=[]; CHART_ID=gen.id; MODEL=gen.model; if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL); saveCharts(); renderDash(); toast("País: "+target); return; }
+  // Si no está cargado (p. ej. país sin datos), solo actualiza la etiqueta de los organigramas del país actual.
+  SELECTED_COUNTRY=target; CHARTS.forEach(ch=>{ if(ch.type!=="global") ch.pais=SELECTED_COUNTRY; }); saveCharts(); renderDash(); if(SELECTED_COUNTRY)toast("País: "+SELECTED_COUNTRY); }
 
 // ---- Cargar desde enlace (Google Drive u otra URL) ----
 /* Identifica el ID de un archivo de Drive. Acepta las formas:
@@ -2117,7 +2141,7 @@ function loadUrlAs(kind){
   say("Descargando\u2026");
   fetchUrl(raw).then(r=>{ const rows=readWorkbook(r.bytes);
     if(kind==="global"){ CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); }
-    else { CHARTS=CHARTS.filter(c=>c.type==="global"); generateCountrySet(rows); }
+    else { generateCountrySet(rows); }
     say("Cargado correctamente."); })
   .catch(e=>{
     say("Google bloquea la lectura directa de archivos desde el navegador. Descarga el Excel de Drive y s\u00fabelo con el bot\u00f3n de arriba (es el camino m\u00e1s seguro). Detalle: "+((e&&e.message)||""));
@@ -2127,7 +2151,7 @@ function loadUrlAs(kind){
 // Botón 1: genera SOLO el organigrama Global (reemplaza el Global anterior; conserva los de país)
 function onGlobalFile(e){ const f=e.target.files[0]; if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Global no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); toast("Organigrama Global generado"); }, "global"); e.target.value=""; }
 // Botón 2: genera los organigramas de País (país + departamentos + áreas; reemplaza los de país; conserva el Global)
-function onCountryFile(e){ const f=e.target.files[0]; if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type==="global"); generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); }, "pais"); e.target.value=""; }
+function onCountryFile(e){ const f=e.target.files[0]; if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); }, "pais"); e.target.value=""; }
 
 // Descarga las fotos que vengan como ENLACE en la columna "Foto" del Excel (Google Drive u otra URL) y las asigna por persona
 /* Carga las fotos que vengan como ENLACE en la columna "Foto" del Excel.
@@ -2264,7 +2288,7 @@ async function init(){
   if(USE_SB && !traido) sbPushAll();
   if(typeof window!=="undefined"&&window.__OLO_LOGO__){ const b=document.getElementById("brandLogo"); if(b)b.src=window.__OLO_LOGO__; }
   wireDrop("dropGlobal",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Global no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); if(Object.keys(PHOTOS).length) matchPhotos(); toast("Organigrama Global generado"); }, "global"); });
-  wireDrop("dropCountry",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type==="global"); generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
+  wireDrop("dropCountry",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
   wireDrop("dropPhotos",files=>handlePhotoFiles(files.filter(f=>/^image\//.test(f.type))));
   setView(CHARTS.length?"dash":"admin");
 }
