@@ -534,6 +534,7 @@ function exportAllCharts(){
   if(!CHARTS.length){ return exportFull(); }
   try{ const pres=newPres(); let made=0;
     const savedId=CHART_ID, savedModel=MODEL;
+    const renderedKeys=new Set();   // evita duplicados entre pasos (clave = pais|rootId)
 
     // 1) Reúne los MODELOS distintos: el global y el de cada país (los charts de país comparten modelo).
     //    Agrupa por REFERENCIA de modelo y también por NOMBRE de país normalizado, de modo que
@@ -570,8 +571,12 @@ function exportAllCharts(){
       if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
       applyOrgFunction(); inheritCountry();
       const tcc=titleCaseCargo;
-      const descs=countryChartDescriptors();   // general + deptos + áreas (misma regla que el Dashboard)
-      const seen=new Set();
+      const seen=new Set();   // positionId ya exportado en este país
+
+      // 3a) General + departamentos + áreas por la regla del Dashboard
+      const paisKey=norm(entry.pais||"");
+      const markKey=(rid)=>{ renderedKeys.add(paisKey+"|"+rid); };
+      const descs=countryChartDescriptors();
       descs.forEach(d=>{
         if(seen.has(d.rootId)) return; seen.add(d.rootId);
         const r=pos(d.rootId); if(!r) return;
@@ -579,8 +584,37 @@ function exportAllCharts(){
         if(d.type==="country"){ v=buildAreaView(d.rootId); if(v){ v.type="country"; v.title="Organigrama General"; v.subtitle=entry.pais||((r.country&&norm(r.country)!=="global")?titleCaseName(r.country):""); if(v.otherReports) v.otherReports=paisOrder(v.otherReports); } }
         else if(d.type==="department"){ v=buildDepartmentView(d.rootId); if(v){ v.title=unitName(r.role)||(r.department?tcc(r.department):tcc(sentence(r.role))); } }
         else { v=buildAreaView(d.rootId); if(v){ const mgr=pos(r.managerPositionId); v.title=(mgr?unitName(mgr.role):"")||(r.department?tcc(r.department):unitName(r.role))||tcc(sentence(r.role)); v.subtitle=r.area?tcc(r.area):(r.department?tcc(r.department):""); } }
-        if(v){ v.pais=entry.pais||""; renderView(v); }
+        if(v){ v.pais=entry.pais||""; if(renderView(v)) markKey(d.rootId); }
       });
+
+      // 3b) RESPALDO A PRUEBA DE TODO: exporta un organigrama por CADA posición que tenga equipo
+      //     (subordinados directos), sin importar el nombre del cargo. Así NO se pierde ningún
+      //     departamento ni área aunque la detección por nombre falle o los datos sean atípicos.
+      activePositions().forEach(p=>{
+        if(seen.has(p.positionId)) return;
+        if(!childrenOf(p.positionId).length) return;   // solo quien tenga equipo
+        seen.add(p.positionId);
+        const v=buildAreaView(p.positionId);
+        if(v){ const mgr=pos(p.managerPositionId);
+          v.title=(mgr?unitName(mgr.role):"")||(p.department?tcc(p.department):unitName(p.role))||tcc(sentence(p.role));
+          v.subtitle=p.area?tcc(p.area):(p.department?tcc(p.department):"");
+          v.pais=entry.pais||""; if(renderView(v)) markKey(p.positionId); }
+      });
+    });
+
+    // 4) ÚLTIMO RESPALDO: recorre los charts de departamento/área GUARDADOS en CHARTS y exporta
+    //    su rootId directamente contra su propio modelo. Cubre el caso de datos guardados donde
+    //    el modelo de país esté "plano" pero cada chart tenga su rootId válido en su modelo.
+    CHARTS.filter(c=>c.type==="department"||c.type==="area").forEach(c=>{
+      let iso; try{ iso=JSON.parse(JSON.stringify(c.model)); }catch(e){ iso=c.model; }
+      if(iso && !iso._singleScope) iso._singleScope="country";
+      CHART_ID=null; MODEL=iso;
+      if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+      applyOrgFunction(); inheritCountry();
+      const rid=c.rootId; if(!rid || !pos(rid)) return;
+      if(renderedKeys.has(norm(c.pais||"")+"|"+rid)) return;   // ya exportado en el paso 3
+      const v=(c.type==="department")?buildDepartmentView(rid):buildAreaView(rid);
+      if(v && v.root){ if(!v.title) v.title=c.name||""; v.pais=c.pais||v.pais||""; made+=pxRenderView(pres,v); }
     });
 
     CHART_ID=savedId; MODEL=savedModel;
