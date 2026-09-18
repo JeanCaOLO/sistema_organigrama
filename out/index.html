@@ -458,15 +458,35 @@ function chartViewObject(){ const c=currentChart(); if(!c)return null; applyOrgF
   else { v.title="Organigrama General"; v.subtitle=c.pais||((root.country&&norm(root.country)!=="global")?titleCaseName(root.country):""); if(v.otherReports) v.otherReports=paisOrder(v.otherReports); }   // general: comerciales primero, luego apoyo
   v.pais=c.pais||""; return v; }
 
+// Identifica, en el MODELO ACTUAL, el líder del país + sus departamentos + sus áreas,
+// con las MISMAS reglas que usa el Dashboard. Devuelve descriptores {type,rootId,name}.
+// Se usa tanto al generar el set como al exportar "Todos", para que coincidan exactamente.
+function countryChartDescriptors(){
+  const tcc=titleCaseCargo;
+  const isGer=p=>/^gerente\b/.test(norm(p.role));
+  const isCoord=p=>{ const c=norm(p.role); return /coordinador|supervisor|encargad|lider/.test(c) || /^jefe\b/.test(c); };
+  const A=activePositions();
+  const leader = A.find(p=>/^gerente de operacion/.test(norm(p.role)))
+              || A.find(p=>isGer(p) && (!p.managerPositionId || !A.some(x=>x.positionId===p.managerPositionId)))
+              || chartRoot() || A[0];
+  const leaderId=leader?leader.positionId:null;
+  const out=[];
+  if(leader){ out.push({type:"country",rootId:leader.positionId,name:"Organigrama General"}); }
+  const deptIds={};
+  A.forEach(p=>{ if(p.positionId===leaderId) return; if(!childrenOf(p.positionId).length) return;
+    if(isGer(p) || p.managerPositionId===leaderId){ out.push({type:"department",rootId:p.positionId,name:unitName(p.role)}); deptIds[p.positionId]=1; } });
+  A.forEach(p=>{ if(p.positionId===leaderId || deptIds[p.positionId]) return; if(!childrenOf(p.positionId).length) return;
+    if(isCoord(p)){ out.push({type:"area",rootId:p.positionId,name:tcc(p.area||unitName(p.role))}); } });
+  return out;
+}
 // Sube UN archivo de país y genera, en un paso: el organigrama del país + el de cada departamento + el de cada área.
 function generateCountrySet(rows){
   if(!rows||!rows.length){ toast("El archivo no tiene filas de datos"); return; }
   const m=assembleModel(rows,[]); m._singleScope="country";
   const sv=MODEL; MODEL=m; reclassifyAll(); applyOrgFunction(); inheritCountry();
   const tcc=titleCaseCargo;
-  const isGer=p=>/^gerente\b/.test(norm(p.role));
-  const isCoord=p=>{ const c=norm(p.role); return /coordinador|supervisor|encargad|lider/.test(c) || /^jefe\b/.test(c); };
   const A0=activePositions();
+  const isGer=p=>/^gerente\b/.test(norm(p.role));
   // LÍDER = Gerente de Operaciones (gerencia general del país)
   const leader = A0.find(p=>/^gerente de operacion/.test(norm(p.role)))
               || A0.find(p=>isGer(p) && (!p.managerPositionId || !A0.some(x=>x.positionId===p.managerPositionId)))
@@ -476,23 +496,11 @@ function generateCountrySet(rows){
   const hasMgr=p=>p.managerPositionId && A0.some(x=>x.positionId===p.managerPositionId);
   const rid=new Set(A0.filter(p=>p.positionId!==leaderId && !hasMgr(p) && childrenOf(p.positionId).length===0).map(p=>p.positionId));
   if(rid.size){ m.positions=m.positions.filter(p=>!rid.has(p.positionId)); m.assignments=m.assignments.filter(a=>!rid.has(a.positionId)); }
-  const A=activePositions();
   const paisNm=SELECTED_COUNTRY || ((leader&&leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):"");  // país: el seleccionado (banderas) o la columna "Pais" del Excel
-  const created=[]; let nDept=0,nArea=0;
-  const mk=(type,p,nm)=>({id:uid("chart"),type,rootId:p.positionId,name:nm||tcc(sentence(p.role)||"Organigrama"),model:m});
-
-  // PAÍS GENERAL = Gerente de Operaciones + sus reportes directos
-  if(leader){ const c=mk("country",leader,"Organigrama General"); c.pais=paisNm; created.push(c); }
-
-  // DEPARTAMENTOS = cada GERENTE con equipo (menos el líder) + los reportes DIRECTOS del líder que tengan equipo (aunque sean coordinadores, p.ej. Ingeniería/Inventarios)
-  const deptIds={};
-  A.forEach(p=>{ if(p.positionId===leaderId) return; if(!childrenOf(p.positionId).length) return;
-    if(isGer(p) || p.managerPositionId===leaderId){ created.push(mk("department",p,unitName(p.role))); deptIds[p.positionId]=1; nDept++; }
-  });
-  // ÁREAS = cada COORDINADOR/JEFE con equipo que no sea ya un departamento
-  A.forEach(p=>{ if(p.positionId===leaderId || deptIds[p.positionId]) return; if(!childrenOf(p.positionId).length) return;
-    if(isCoord(p)){ created.push(mk("area",p,tcc(p.area||unitName(p.role)))); nArea++; }
-  });
+  // Usa la MISMA lógica que "Todos" para identificar general + departamentos + áreas
+  const descs=countryChartDescriptors();
+  const created=descs.map(d=>({id:uid("chart"),type:d.type,rootId:d.rootId,name:d.name,model:m,pais:paisNm}));
+  const nDept=descs.filter(d=>d.type==="department").length, nArea=descs.filter(d=>d.type==="area").length;
 
   MODEL=sv;
   if(!created.length){ toast("No se reconoció una estructura de país en el archivo"); return; }
@@ -518,59 +526,66 @@ function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); i
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
 function goMode(m){ if(m==="global"){ const g=CHARTS.find(c=>c.type==="global"); if(g){ NAVHIST=[]; selectChart(g.id); } else toast("Aún no has cargado el Organigrama Global (botón ① en Administrador)"); }
   else { const p=CHARTS.find(c=>c.type==="country"); if(p){ NAVHIST=[]; selectChart(p.id); } else toast("Aún no has cargado los Organigramas de País (botón ② en Administrador)"); } }
-// Descarga TODOS los organigramas (Global + General + Departamentos + Áreas) en un solo PowerPoint
+// Descarga TODOS los organigramas (Global + General + Departamentos + Áreas) en un solo PowerPoint.
+// GENERA TODO DIRECTAMENTE DESDE LOS MODELOS (no depende del estado de CHARTS): por cada MODELO
+// distinto reconstruye el general del país + todos sus departamentos + todas sus áreas, con la
+// MISMA lógica del Dashboard. Así funciona aunque CHARTS esté incompleto o tenga etiquetas duplicadas.
 function exportAllCharts(){
   if(!CHARTS.length){ return exportFull(); }
-  try{ const pres=newPres(); let made=0, skipped=0; const order={global:0,country:1,department:2,area:3};
-    const savedId=CHART_ID, savedModel=MODEL; const renderedRoots=new Set();
-    // Renderiza CADA organigrama contra su PROPIO modelo aislado (copia profunda), para que las
-    // mutaciones de applyOrgFunction/ensureDirector/inheritCountry de un organigrama no contaminen
-    // a los demás (todos los de país comparten el mismo objeto de modelo). Así "Todos" incluye
-    // Global + General + cada Departamento + cada Área, no solo el visible.
-    [...CHARTS].sort((a,b)=>((order[a.type]??9)-(order[b.type]??9))||(a.name||"").localeCompare(b.name||"","es")).forEach(c=>{
-      let iso; try{ iso=JSON.parse(JSON.stringify(c.model)); }catch(e){ iso=c.model; }
-      if(iso && !iso._singleScope) iso._singleScope = (c.type==="global"?"global":"country");
-      CHART_ID=c.id; MODEL=iso;
-      if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
-      let v=chartViewObject();
-      // Blindaje: si por cualquier estado la vista no trae raíz, la reconstruimos DIRECTO desde el rootId
-      // del chart, para NO perder ningún departamento ni área. Así "Todos" incluye TODO.
-      if((!v || !v.root) && c.rootId){
-        if(c.type==="department") v=buildDepartmentView(c.rootId);
-        else if(c.type==="area") v=buildAreaView(c.rootId);
-        else if(c.type==="country") v=buildAreaView(c.rootId);
-        else if(c.type==="global") v=buildGlobalView();
-        if(v){ v.pais=c.pais||v.pais||""; if(!v.title) v.title=c.name||""; }
-      }
-      if(v && v.root){ made+=pxRenderView(pres,v); if(c.rootId)renderedRoots.add(c.rootId); } else { skipped++; }
+  try{ const pres=newPres(); let made=0;
+    const savedId=CHART_ID, savedModel=MODEL;
+
+    // 1) Reúne los MODELOS distintos: el global y el de cada país (los charts de país comparten modelo).
+    //    Agrupa por REFERENCIA de modelo y también por NOMBRE de país normalizado, de modo que
+    //    "Costa Rica" y "COSTA RICA" (dos cargas del mismo país) NO se dupliquen.
+    const globalCharts=CHARTS.filter(c=>c.type==="global");
+    const countryModels=[];  // {model,pais}
+    const seenPais=new Set();
+    CHARTS.filter(c=>c.type!=="global").forEach(c=>{
+      const byRef=countryModels.find(x=>x.model===c.model);
+      if(byRef){ if(!byRef.pais && c.pais) byRef.pais=c.pais; return; }
+      const pk=norm(c.pais||"");
+      if(pk && seenPais.has(pk)) return;   // mismo país por nombre, ya incluido con otro modelo
+      if(pk) seenPais.add(pk);
+      countryModels.push({model:c.model,pais:c.pais||""});
     });
 
-    // RESPALDO TOTAL: si en CHARTS no había departamentos ni áreas (p. ej. estado incompleto),
-    // los reconstruimos a partir del MODELO de cada país, igual que el Dashboard. Así "Todos"
-    // SIEMPRE trae país + todos los departamentos + todas las áreas, aunque CHARTS esté incompleto.
-    const hadDept=CHARTS.some(c=>c.type==="department"), hadArea=CHARTS.some(c=>c.type==="area");
-    if(!hadDept || !hadArea){
-      const rendered=new Set(renderedRoots);
-      // Un modelo por país (los charts de país comparten modelo; agrupamos por objeto de modelo)
-      const modelsByCountry=[];
-      CHARTS.filter(c=>c.type!=="global").forEach(c=>{ if(!modelsByCountry.some(x=>x.model===c.model)) modelsByCountry.push({model:c.model,pais:c.pais||""}); });
-      modelsByCountry.forEach(entry=>{
-        let iso; try{ iso=JSON.parse(JSON.stringify(entry.model)); }catch(e){ iso=entry.model; }
-        if(iso && !iso._singleScope) iso._singleScope="country";
-        CHART_ID=null; MODEL=iso;
-        if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
-        applyOrgFunction(); inheritCountry();
-        const push=(v)=>{ if(v&&v.root){ v.pais=v.pais||entry.pais||""; made+=pxRenderView(pres,v); } };
-        // Un mismo positionId NO debe salir dos veces (ni como depto ni como área)
-        const deptRoots=(!hadDept)?listDepartmentRoots():[];
-        deptRoots.forEach(p=>{ if(rendered.has(p.positionId))return; rendered.add(p.positionId); push(buildDepartmentView(p.positionId)); });
-        if(!hadArea) listAreaRoots().forEach(p=>{ if(rendered.has(p.positionId))return; rendered.add(p.positionId); push(buildAreaView(p.positionId)); });
+    const renderView=(v)=>{ if(v && v.root){ made+=pxRenderView(pres,v); return true; } return false; };
+
+    // 2) GLOBAL (si existe)
+    globalCharts.forEach(gc=>{
+      let iso; try{ iso=JSON.parse(JSON.stringify(gc.model)); }catch(e){ iso=gc.model; }
+      if(iso) iso._singleScope="global";
+      CHART_ID=null; MODEL=iso;
+      if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+      applyOrgFunction(); ensureDirector(); attachOrphansToDirector(); inheritCountry(); applyOrgFunction();
+      renderView(buildGlobalView());
+    });
+
+    // 3) Por cada PAÍS: general + departamentos + áreas, reconstruidos desde el modelo.
+    countryModels.forEach(entry=>{
+      let iso; try{ iso=JSON.parse(JSON.stringify(entry.model)); }catch(e){ iso=entry.model; }
+      if(iso) iso._singleScope="country";
+      CHART_ID=null; MODEL=iso;
+      if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+      applyOrgFunction(); inheritCountry();
+      const tcc=titleCaseCargo;
+      const descs=countryChartDescriptors();   // general + deptos + áreas (misma regla que el Dashboard)
+      const seen=new Set();
+      descs.forEach(d=>{
+        if(seen.has(d.rootId)) return; seen.add(d.rootId);
+        const r=pos(d.rootId); if(!r) return;
+        let v;
+        if(d.type==="country"){ v=buildAreaView(d.rootId); if(v){ v.type="country"; v.title="Organigrama General"; v.subtitle=entry.pais||((r.country&&norm(r.country)!=="global")?titleCaseName(r.country):""); if(v.otherReports) v.otherReports=paisOrder(v.otherReports); } }
+        else if(d.type==="department"){ v=buildDepartmentView(d.rootId); if(v){ v.title=unitName(r.role)||(r.department?tcc(r.department):tcc(sentence(r.role))); } }
+        else { v=buildAreaView(d.rootId); if(v){ const mgr=pos(r.managerPositionId); v.title=(mgr?unitName(mgr.role):"")||(r.department?tcc(r.department):unitName(r.role))||tcc(sentence(r.role)); v.subtitle=r.area?tcc(r.area):(r.department?tcc(r.department):""); } }
+        if(v){ v.pais=entry.pais||""; renderView(v); }
       });
-    }
+    });
 
     CHART_ID=savedId; MODEL=savedModel;
     if(!made){ toast("Nada que exportar"); return; }
-    downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas"+(skipped?", "+skipped+" sin datos omitidos":"")+")");
+    downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas)");
   }catch(e){ console.error(e); toast("Error al generar PowerPoint"); } }
 function saveConfidential(){ try{ localStorage.setItem(K_CONF, JSON.stringify(CONFIDENTIAL)); }catch(e){} sbPush(K_CONF, CONFIDENTIAL); }
 function saveSnapshots(){ try{ localStorage.setItem(K_SNAP, JSON.stringify(SNAPSHOTS)); }catch(e){} sbPush(K_SNAP, SNAPSHOTS); }
