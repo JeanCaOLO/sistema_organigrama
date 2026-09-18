@@ -2,6 +2,9 @@
 <html lang="es"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Organigramas OLO</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>/* PptxGenJS 3.12.0 @ 2023-03-20T03:12:31.375Z */
@@ -519,7 +522,7 @@ function goMode(m){ if(m==="global"){ const g=CHARTS.find(c=>c.type==="global");
 function exportAllCharts(){
   if(!CHARTS.length){ return exportFull(); }
   try{ const pres=newPres(); let made=0, skipped=0; const order={global:0,country:1,department:2,area:3};
-    const savedId=CHART_ID, savedModel=MODEL;
+    const savedId=CHART_ID, savedModel=MODEL; const renderedRoots=new Set();
     // Renderiza CADA organigrama contra su PROPIO modelo aislado (copia profunda), para que las
     // mutaciones de applyOrgFunction/ensureDirector/inheritCountry de un organigrama no contaminen
     // a los demás (todos los de país comparten el mismo objeto de modelo). Así "Todos" incluye
@@ -529,9 +532,42 @@ function exportAllCharts(){
       if(iso && !iso._singleScope) iso._singleScope = (c.type==="global"?"global":"country");
       CHART_ID=c.id; MODEL=iso;
       if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
-      const v=chartViewObject();
-      if(v && v.root){ made+=pxRenderView(pres,v); } else { skipped++; }
+      let v=chartViewObject();
+      // Blindaje: si por cualquier estado la vista no trae raíz, la reconstruimos DIRECTO desde el rootId
+      // del chart, para NO perder ningún departamento ni área. Así "Todos" incluye TODO.
+      if((!v || !v.root) && c.rootId){
+        if(c.type==="department") v=buildDepartmentView(c.rootId);
+        else if(c.type==="area") v=buildAreaView(c.rootId);
+        else if(c.type==="country") v=buildAreaView(c.rootId);
+        else if(c.type==="global") v=buildGlobalView();
+        if(v){ v.pais=c.pais||v.pais||""; if(!v.title) v.title=c.name||""; }
+      }
+      if(v && v.root){ made+=pxRenderView(pres,v); if(c.rootId)renderedRoots.add(c.rootId); } else { skipped++; }
     });
+
+    // RESPALDO TOTAL: si en CHARTS no había departamentos ni áreas (p. ej. estado incompleto),
+    // los reconstruimos a partir del MODELO de cada país, igual que el Dashboard. Así "Todos"
+    // SIEMPRE trae país + todos los departamentos + todas las áreas, aunque CHARTS esté incompleto.
+    const hadDept=CHARTS.some(c=>c.type==="department"), hadArea=CHARTS.some(c=>c.type==="area");
+    if(!hadDept || !hadArea){
+      const rendered=new Set(renderedRoots);
+      // Un modelo por país (los charts de país comparten modelo; agrupamos por objeto de modelo)
+      const modelsByCountry=[];
+      CHARTS.filter(c=>c.type!=="global").forEach(c=>{ if(!modelsByCountry.some(x=>x.model===c.model)) modelsByCountry.push({model:c.model,pais:c.pais||""}); });
+      modelsByCountry.forEach(entry=>{
+        let iso; try{ iso=JSON.parse(JSON.stringify(entry.model)); }catch(e){ iso=entry.model; }
+        if(iso && !iso._singleScope) iso._singleScope="country";
+        CHART_ID=null; MODEL=iso;
+        if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+        applyOrgFunction(); inheritCountry();
+        const push=(v)=>{ if(v&&v.root){ v.pais=v.pais||entry.pais||""; made+=pxRenderView(pres,v); } };
+        // Un mismo positionId NO debe salir dos veces (ni como depto ni como área)
+        const deptRoots=(!hadDept)?listDepartmentRoots():[];
+        deptRoots.forEach(p=>{ if(rendered.has(p.positionId))return; rendered.add(p.positionId); push(buildDepartmentView(p.positionId)); });
+        if(!hadArea) listAreaRoots().forEach(p=>{ if(rendered.has(p.positionId))return; rendered.add(p.positionId); push(buildAreaView(p.positionId)); });
+      });
+    }
+
     CHART_ID=savedId; MODEL=savedModel;
     if(!made){ toast("Nada que exportar"); return; }
     downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas"+(skipped?", "+skipped+" sin datos omitidos":"")+")");
