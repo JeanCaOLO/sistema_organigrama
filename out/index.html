@@ -508,13 +508,23 @@ function goMode(m){ if(m==="global"){ const g=CHARTS.find(c=>c.type==="global");
 // Descarga TODOS los organigramas (Global + General + Departamentos + Áreas) en un solo PowerPoint
 function exportAllCharts(){
   if(!CHARTS.length){ return exportFull(); }
-  try{ const pres=newPres(); let made=0; const order={global:0,country:1,department:2,area:3};
+  try{ const pres=newPres(); let made=0, skipped=0; const order={global:0,country:1,department:2,area:3};
     const savedId=CHART_ID, savedModel=MODEL;
-    [...CHARTS].sort((a,b)=>(order[a.type]-order[b.type])||(a.name||"").localeCompare(b.name||"","es")).forEach(c=>{
-      CHART_ID=c.id; MODEL=c.model; const v=chartViewObject(); if(v&&v.root) made+=pxRenderView(pres,v); });
+    // Renderiza CADA organigrama contra su PROPIO modelo aislado (copia profunda), para que las
+    // mutaciones de applyOrgFunction/ensureDirector/inheritCountry de un organigrama no contaminen
+    // a los demás (todos los de país comparten el mismo objeto de modelo). Así "Todos" incluye
+    // Global + General + cada Departamento + cada Área, no solo el visible.
+    [...CHARTS].sort((a,b)=>((order[a.type]??9)-(order[b.type]??9))||(a.name||"").localeCompare(b.name||"","es")).forEach(c=>{
+      let iso; try{ iso=JSON.parse(JSON.stringify(c.model)); }catch(e){ iso=c.model; }
+      if(iso && !iso._singleScope) iso._singleScope = (c.type==="global"?"global":"country");
+      CHART_ID=c.id; MODEL=iso;
+      if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+      const v=chartViewObject();
+      if(v && v.root){ made+=pxRenderView(pres,v); } else { skipped++; }
+    });
     CHART_ID=savedId; MODEL=savedModel;
     if(!made){ toast("Nada que exportar"); return; }
-    downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas)");
+    downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas"+(skipped?", "+skipped+" sin datos omitidos":"")+")");
   }catch(e){ console.error(e); toast("Error al generar PowerPoint"); } }
 function saveConfidential(){ try{ localStorage.setItem(K_CONF, JSON.stringify(CONFIDENTIAL)); }catch(e){} sbPush(K_CONF, CONFIDENTIAL); }
 function saveSnapshots(){ try{ localStorage.setItem(K_SNAP, JSON.stringify(SNAPSHOTS)); }catch(e){} sbPush(K_SNAP, SNAPSHOTS); }
