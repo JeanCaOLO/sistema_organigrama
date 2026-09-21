@@ -155,6 +155,7 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
   <div class="spacer"></div>
   <button class="btn ghost" onclick="exportCurrent()">⬇︎ Este organigrama</button>
   <button class="btn primary" onclick="exportAllCharts()">⬇︎ Todos</button>
+  <button class="btn ghost" onclick="diagCharts()" title="Diagnóstico de datos">🔍</button>
 </div></header>
 
 <main>
@@ -526,12 +527,83 @@ function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); i
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
 function goMode(m){ if(m==="global"){ const g=CHARTS.find(c=>c.type==="global"); if(g){ NAVHIST=[]; selectChart(g.id); } else toast("Aún no has cargado el Organigrama Global (botón ① en Administrador)"); }
   else { const p=CHARTS.find(c=>c.type==="country"); if(p){ NAVHIST=[]; selectChart(p.id); } else toast("Aún no has cargado los Organigramas de País (botón ② en Administrador)"); } }
+// Radiografía de los datos guardados: por qué "Todos" exporta lo que exporta.
+function diagCharts(){
+  const lines=[];
+  lines.push("CHARTS total: "+CHARTS.length);
+  const porTipo={}; CHARTS.forEach(c=>porTipo[c.type]=(porTipo[c.type]||0)+1);
+  lines.push("Por tipo: "+JSON.stringify(porTipo));
+  const etiquetas=[...new Set(CHARTS.filter(c=>c.type!=="global").map(c=>c.pais||"(sin pais)"))];
+  lines.push("Etiquetas de país: "+JSON.stringify(etiquetas));
+  // Modelos distintos (por referencia)
+  const modelos=[]; CHARTS.forEach(c=>{ if(c.model && !modelos.some(m=>m.model===c.model)) modelos.push({model:c.model,pais:c.pais||"",tipos:[]}); });
+  CHARTS.forEach(c=>{ const e=modelos.find(m=>m.model===c.model); if(e) e.tipos.push(c.type); });
+  lines.push("Modelos distintos (por referencia): "+modelos.length);
+  modelos.forEach((e,i)=>{
+    const m=e.model||{}; const pos=(m.positions||[]);
+    const activos=pos.filter(p=>p.status!=="inactive");
+    const idset=new Set(activos.map(p=>p.positionId));
+    const conEquipo=activos.filter(p=>activos.some(x=>x.managerPositionId===p.positionId));
+    const mgrRotos=activos.filter(p=>p.managerPositionId && !idset.has(p.managerPositionId)).length;
+    lines.push(" Modelo #"+(i+1)+" pais='"+e.pais+"' charts=["+e.tipos.join(",")+"]");
+    lines.push("   posiciones="+pos.length+" activas="+activos.length+" CON EQUIPO="+conEquipo.length+" (managerPositionId rotos="+mgrRotos+")");
+  });
+  const txt=lines.join("\n");
+  console.log("=== DIAGNÓSTICO ORGANIGRAMAS ===\n"+txt);
+  try{ alert(txt); }catch(e){}
+  try{ toast("Diagnóstico en consola (F12) y alerta"); }catch(e){}
+}
 // Descarga TODOS los organigramas (Global + General + Departamentos + Áreas) en un solo PowerPoint.
 // GENERA TODO DIRECTAMENTE DESDE LOS MODELOS (no depende del estado de CHARTS): por cada MODELO
 // distinto reconstruye el general del país + todos sus departamentos + todas sus áreas, con la
 // MISMA lógica del Dashboard. Así funciona aunque CHARTS esté incompleto o tenga etiquetas duplicadas.
+// Exporta TODO a partir de un MODELO: el organigrama general + un organigrama por CADA posición
+// que tenga equipo (departamentos y áreas), sin importar el nombre del cargo.
+function exportModelAllInto(pres, model, pais){
+  let made=0;
+  let iso; try{ iso=JSON.parse(JSON.stringify(model)); }catch(e){ iso=model; }
+  if(iso && !iso._singleScope) iso._singleScope="country";
+  MODEL=iso; CHART_ID=null;
+  if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+  applyOrgFunction(); inheritCountry();
+  const tcc=titleCaseCargo;
+  const isGer=p=>/^gerente\b/.test(norm(p.role));
+  const A=activePositions();
+  const leader = A.find(p=>/^gerente de operacion/.test(norm(p.role)))
+              || A.find(p=>isGer(p) && (!p.managerPositionId || !A.some(x=>x.positionId===p.managerPositionId)))
+              || chartRoot() || A[0];
+  const leaderId=leader?leader.positionId:null;
+  const seen=new Set();
+  // General del país
+  if(leader){ seen.add(leaderId); const v=buildAreaView(leaderId); if(v&&v.root){ v.type="country"; v.title="Organigrama General"; v.subtitle=pais||((leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):""); if(v.otherReports)v.otherReports=paisOrder(v.otherReports); v.pais=pais||""; made+=pxRenderView(pres,v); } }
+  // Un organigrama por CADA posición con equipo (departamentos + áreas)
+  activePositions().forEach(p=>{
+    if(seen.has(p.positionId)) return;
+    if(!childrenOf(p.positionId).length) return;
+    seen.add(p.positionId);
+    const v=buildAreaView(p.positionId);
+    if(v&&v.root){ const mgr=pos(p.managerPositionId);
+      v.title=(mgr?unitName(mgr.role):"")||(p.department?tcc(p.department):unitName(p.role))||tcc(sentence(p.role));
+      v.subtitle=p.area?tcc(p.area):(p.department?tcc(p.department):"");
+      v.pais=pais||""; made+=pxRenderView(pres,v); }
+  });
+  return made;
+}
 function exportAllCharts(){
-  if(!CHARTS.length){ return exportFull(); }
+  // Si NO hay charts guardados pero el MODELO actual tiene datos, generamos TODO desde el modelo.
+  if(!CHARTS.length){
+    if(MODEL && (MODEL.positions||[]).some(p=>p.status!=="inactive")){
+      try{ const pres=newPres(); const savedId=CHART_ID, savedModel=MODEL;
+        const pais=SELECTED_COUNTRY||"";
+        const made=exportModelAllInto(pres, savedModel, pais);
+        CHART_ID=savedId; MODEL=savedModel;
+        if(!made){ toast("Nada que exportar"); return; }
+        downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas)");
+        return;
+      }catch(e){ console.error(e); toast("Error al generar PowerPoint"); return; }
+    }
+    return exportFull();
+  }
   try{ const pres=newPres(); let made=0;
     const savedId=CHART_ID, savedModel=MODEL;
     const renderedKeys=new Set();   // evita duplicados entre pasos (clave = pais|rootId)
