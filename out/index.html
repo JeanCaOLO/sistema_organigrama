@@ -1975,6 +1975,8 @@ function collectAllViews(){
     const A=activePositions();
     const leader=A.find(p=>/^gerente de operacion/.test(norm(p.role)))||A.find(p=>isGer(p)&&(!p.managerPositionId||!A.some(x=>x.positionId===p.managerPositionId)))||chartRoot()||A[0];
     const leaderId=leader?leader.positionId:null; const seen=new Set();
+    // Si no llegó el país, lo DERIVAMOS del modelo (líder o cualquier posición con país != global)
+    if(!pais){ const cand=(leader&&leader.country&&norm(leader.country)!=="global")?leader.country:(A.find(p=>p.country&&norm(p.country)!=="global"&&norm(p.country)!=="")||{}).country; if(cand) pais=titleCaseName(cand); }
     if(leader){ seen.add(leaderId); const v=buildAreaView(leaderId); if(v&&v.root){ v.type="country"; v.title="Organigrama General"; v.subtitle=pais||((leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):""); if(v.otherReports)v.otherReports=paisOrder(v.otherReports); v.pais=pais||""; out.push(v); } }
     activePositions().forEach(p=>{ if(seen.has(p.positionId))return; if(!childrenOf(p.positionId).length)return; seen.add(p.positionId);
       const v=buildAreaView(p.positionId); if(v&&v.root){ const mgr=pos(p.managerPositionId); v.title=(mgr?unitName(mgr.role):"")||(p.department?tcc(p.department):unitName(p.role))||tcc(sentence(p.role)); v.subtitle=p.area?tcc(p.area):(p.department?tcc(p.department):""); v.pais=pais||""; out.push(v); } });
@@ -2044,7 +2046,12 @@ function setManualRisk(id,val){ CONFIDENTIAL.riskOverrides=CONFIDENTIAL.riskOver
 /* ===================== REPOSITORIO (snapshots aprobados) ===================== */
 function repoMonthKey(iso){ const d=new Date(iso); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
 function repoMonthLabel(iso){ const d=new Date(iso); const M=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]; return M[d.getMonth()]+" "+d.getFullYear(); }
-function repoFolderOf(s){ return (s.artifactType==="global")?"Global":(s.country||"Sin país"); }
+function repoFolderOf(s){ if(s.artifactType==="global")return "Global";
+  if(s.country && s.country.trim()) return s.country;
+  // Recuperar país de snapshots antiguos guardados sin país: del baseKey ("pais::...") o del subtítulo
+  if(s.baseKey && s.baseKey.indexOf("::")>0){ const p=s.baseKey.split("::")[0]; if(p) return titleCaseName(p); }
+  const st=(s.publicSnapshot&&s.publicSnapshot.subtitle||"").replace(/^organigrama\s+/i,"").trim(); if(st) return st;
+  return "Sin país"; }
 function repoYearKey(iso){ return String(new Date(iso).getFullYear()); }
 function repoOpenYear(y){ REPO_NAV={year:y,country:null,month:null}; renderRepo(); }
 function repoOpen(c){ REPO_NAV.country=c; REPO_NAV.month=null; renderRepo(); }
