@@ -307,7 +307,15 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
    Nota: localStorage NO es seguro; la seguridad real requiere backend.
    ============================================================================ */
 /* ===================== ESTADO / PERSISTENCIA ===================== */
-const K_MODEL="olo_orgchart_v3", K_CONF="olo_talent_confidential_v1", K_SNAP="olo_snapshots_v1", K_OLD="olo_orgchart_v2", K_CHARTS="olo_orgcharts_v3";
+const K_MODEL="olo_orgchart_v3", K_CONF="olo_talent_confidential_v1", K_SNAP="olo_snapshots_v1", K_OLD="olo_orgchart_v2", K_CHARTS="olo_orgcharts_v3", K_SNAPPHOTOS="olo_snapshot_photos_v1";
+// Almacén de fotos de los snapshots (clave corta -> base64). Se guarda aparte para que los
+// snapshots NO lleven la foto embebida (evita que el JSON crezca y falle en localStorage/DB).
+let SNAP_PHOTOS={};
+function snapPhotoKey(dataUrl){ let h=5381; for(let i=0;i<dataUrl.length;i++){ h=((h<<5)+h+dataUrl.charCodeAt(i))>>>0; } return "ph_"+h.toString(36)+"_"+dataUrl.length; }
+function saveSnapPhotos(){ try{ localStorage.setItem(K_SNAPPHOTOS, JSON.stringify(SNAP_PHOTOS)); }catch(e){} sbPush(K_SNAPPHOTOS, SNAP_PHOTOS); }
+function loadSnapPhotos(){ try{ const r=localStorage.getItem(K_SNAPPHOTOS); if(r)SNAP_PHOTOS=JSON.parse(r)||{}; }catch(e){ SNAP_PHOTOS={}; } }
+// Devuelve el base64 real de una tarjeta de snapshot (rehidrata desde SNAP_PHOTOS por photoKey).
+function snapCardPhoto(card){ if(!card)return ""; if(card.photo)return card.photo; if(card.photoKey && SNAP_PHOTOS[card.photoKey])return SNAP_PHOTOS[card.photoKey]; return ""; }
 
 /* ---------- SUPABASE (backend central, mismo proyecto que los otros sistemas OLO) ----------
    Tabla propia de este proyecto: olo_organigramas_kv (ver supabase_organigramas_setup.sql).
@@ -319,7 +327,7 @@ const SB_TABLE = 'olo_organigramas_kv';
 const sb = (SUPABASE_URL && SUPABASE_ANON_KEY && typeof window!=='undefined' && window.supabase)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const USE_SB = !!sb;
-const SB_KEYS = [K_MODEL, K_CHARTS, K_CONF, K_SNAP, "olo_approval_state_v1"];
+const SB_KEYS = [K_MODEL, K_CHARTS, K_CONF, K_SNAP, K_SNAPPHOTOS, "olo_approval_state_v1"];
 
 /* Escritura con retardo: agrupa ráfagas de cambios en un solo envío por clave. */
 const _sbTimers = {};
@@ -359,7 +367,7 @@ function sbPushAll(){
   sbPush("olo_approval_state_v1", APPR);
 }
 let MODEL={persons:[],positions:[],assignments:[],classificationRules:[],managerOverrides:[]};
-let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COUNTRY=""; let REPO_NAV={country:null,year:null,month:null};
+let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COUNTRY=""; let REPO_NAV={year:null,country:null,month:null};
 let CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]};
 let SNAPSHOTS=[];
 let VIEW="admin";
@@ -694,7 +702,7 @@ function exportAllCharts(){
     downloadPres(pres,"Organigramas_OLO_completo.pptx","PowerPoint descargado ("+made+" diapositivas)");
   }catch(e){ console.error(e); toast("Error al generar PowerPoint"); } }
 function saveConfidential(){ try{ localStorage.setItem(K_CONF, JSON.stringify(CONFIDENTIAL)); }catch(e){} sbPush(K_CONF, CONFIDENTIAL); }
-function saveSnapshots(){ try{ localStorage.setItem(K_SNAP, JSON.stringify(SNAPSHOTS)); }catch(e){} sbPush(K_SNAP, SNAPSHOTS); }
+function saveSnapshots(){ let lsOk=true; try{ localStorage.setItem(K_SNAP, JSON.stringify(SNAPSHOTS)); }catch(e){ lsOk=false; console.warn("localStorage lleno para snapshots; se guarda en la nube.",e); } sbPush(K_SNAP, SNAPSHOTS); if(!lsOk && !USE_SB) toast("Aviso: almacenamiento local lleno, el histórico podría no persistir"); }
 function saveAll(){ saveModel(); saveSnapshots(); }
 function pushUndo(){ try{ UNDO.push(JSON.stringify(MODEL)); if(UNDO.length>40)UNDO.shift(); REDO.length=0; }catch(e){} }
 function undoLastChange(){ if(!UNDO.length){toast("Nada que deshacer");return;} REDO.push(JSON.stringify(MODEL)); MODEL=JSON.parse(UNDO.pop()); saveModel(); recordAuditChange({entityType:"model",field:"undo",source:"rollback"}); rebuildAll(); toast("Cambio deshecho"); }
@@ -1096,6 +1104,7 @@ function load(){
   loadCharts(); if(CHART_ID){ const c=CHARTS.find(x=>x.id===CHART_ID); if(c&&c.model){ MODEL=c.model; } else { CHART_ID=null; } }
   try{ const c=localStorage.getItem(K_CONF); if(c)CONFIDENTIAL=JSON.parse(c); }catch(e){}
   try{ const s=localStorage.getItem(K_SNAP); if(s)SNAPSHOTS=JSON.parse(s); }catch(e){}
+  loadSnapPhotos();
   seedConfidentialDemo();
 }
 function loadDemo(){ localStorage.removeItem(K_MODEL); localStorage.removeItem(K_CONF); localStorage.removeItem(K_SNAP); MODEL={persons:[],positions:[],assignments:[],classificationRules:[],managerOverrides:[]}; CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]}; SNAPSHOTS=[]; APPR={}; try{ PHOTOS={}; PHOTO_RAW={}; }catch(e){} saveAppr(); load(); rebuildAll(); toast("Datos de ejemplo cargados"); }
@@ -1286,10 +1295,11 @@ function initials(n){ const a=(n||"").replace(/[()]/g,"").trim().split(/\s+/).fi
 function wrap(t,max){ const w=(t||"").split(/\s+/),lines=[]; let c=""; w.forEach(x=>{ if((c+" "+x).trim().length>max){ if(c)lines.push(c); c=x; } else c=(c+" "+x).trim(); }); if(c)lines.push(c); return lines.slice(0,3); }
 function nodeSVG(nd,forExport){
   const c=nd.card||personDisplay(nd.posId); const cx=nd.cx*S, cy=nd.cy*S, r=nd.d*S/2;
+  const cphoto=snapCardPhoto(c);
   let g=`<g id="hit_${esc(nd.posId).replace(/[^a-zA-Z0-9_-]/g,'_')}" data-pos="${esc(nd.posId)}" style="cursor:pointer">`;
-  if(c.photo && !c.vacant){
+  if(cphoto && !c.vacant){
     g+=`<clipPath id="cp_${esc(nd.posId).replace(/[^a-zA-Z0-9_-]/g,'_')}"><circle cx="${cx}" cy="${cy}" r="${r}"/></clipPath>`;
-    g+=`<image href="${c.photo}" x="${cx-r}" y="${cy-r}" width="${r*2}" height="${r*2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#cp_${esc(nd.posId).replace(/[^a-zA-Z0-9_-]/g,'_')})"/>`;
+    g+=`<image href="${cphoto}" x="${cx-r}" y="${cy-r}" width="${r*2}" height="${r*2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#cp_${esc(nd.posId).replace(/[^a-zA-Z0-9_-]/g,'_')})"/>`;
   } else if(c.vacant){
     g+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="#FFFFFF"/>`;
   } else {
@@ -1354,7 +1364,12 @@ function createPublicSnapshot(view){
   // congela geometría + tarjetas públicas (sin datos confidenciales; solo marcas autorizadas)
   const tmp=layoutForView(view,0); const pages=tmp.pages; const pageArr=[];
   for(let pg=0;pg<pages;pg++){ const lay=attachCards(layoutForView(view,pg),view);
-    pageArr.push({ connectors:lay.connectors.map(c=>({...c})), nodes:lay.nodes.map(n=>({cx:n.cx,cy:n.cy,d:n.d,kind:n.kind,card:JSON.parse(JSON.stringify(n.card))})) });
+    pageArr.push({ connectors:lay.connectors.map(c=>({...c})), nodes:lay.nodes.map(n=>{
+      const card=JSON.parse(JSON.stringify(n.card));
+      // Extrae la foto base64 al almacén compartido y guarda SOLO una clave (dedupe + JSON pequeño)
+      if(card.photo && /^data:/.test(card.photo)){ const k=snapPhotoKey(card.photo); SNAP_PHOTOS[k]=card.photo; card.photoKey=k; delete card.photo; }
+      return {cx:n.cx,cy:n.cy,d:n.d,kind:n.kind,card};
+    }) });
   }
   return {title:view.title,subtitle:view.subtitle,pais:view.pais||"",cnt:(view.type!=="global"?viewCounts(view):null),pages:pageArr};
 }
@@ -1382,7 +1397,8 @@ function downloadPres(pres,fileName,okMsg){
 }
 function pxDrawNode(slide,nd){
   const c=nd.card||personDisplay(nd.posId); const x=nd.cx-nd.d/2, y=nd.cy-nd.d/2, d=nd.d;
-  if(c.photo && !c.vacant){ slide.addImage({data:c.photo,x,y,w:d,h:d,rounding:true}); }
+  const cphoto=snapCardPhoto(c);
+  if(cphoto && !c.vacant){ slide.addImage({data:cphoto,x,y,w:d,h:d,rounding:true}); }
   else if(c.vacant){ slide.addShape("ellipse",{x,y,w:d,h:d,fill:{color:"FFFFFF"}}); }
   else { slide.addShape("ellipse",{x,y,w:d,h:d,fill:{color:PX.PH}}); slide.addText(c.initials||initials(c.name),{x,y,w:d,h:d,align:"center",valign:"middle",fontFace:PX.FONT,fontSize:Math.max(9,d*22),color:PX.INK,bold:true}); }
   slide.addShape("ellipse",{x,y,w:d,h:d,fill:{type:"none"},line:{color:PX.INK,width:0.75}});
@@ -1441,7 +1457,7 @@ function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(
 /* ===================== NAVEGACIÓN DE VISTAS ===================== */
 function setView(v){ VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
-  if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={country:null,year:null,month:null}; renderRepo(); }
+  if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={year:null,country:null,month:null}; renderRepo(); }
 }
 function cap(v){ return {admin:"Admin",dash:"Dash",ger:"Ger",repo:"Repo"}[v]; }
 // Clasifica cada posición según la columna FUNCIÓN ORGANIGRAMA del Excel (prevalece sobre la automática).
@@ -1931,15 +1947,16 @@ function saveChartsToRepo(){
   let ok=0;
   views.forEach(v=>{
     if(!v||!v.root)return;
-    const baseKey=artifactKey(v);
-    const histKey=baseKey+"@"+mk;   // clave histórica: organigrama + mes/año
+    const paisTag=norm(v.pais||v.country||"");
+    const baseKey=(v.type==="global")?artifactKey(v):(paisTag+"::"+artifactKey(v));   // incluye país para no colisionar entre países
+    const histKey=baseKey+"@"+mk;   // clave histórica: país + organigrama + mes/año
     const entry={artifactId:uid("art"),artifactType:v.type,country:(v.pais||v.country||""),rootPositionId:v.root.positionId,approvedAt:now,approvedBy:"dashboard",publicDataRevision:Date.now(),publicSnapshot:createPublicSnapshot(v),artifactKey:histKey,baseKey:baseKey,monthKey:mk};
     // Reemplaza SOLO la versión del MISMO organigrama en el MISMO mes (mantiene los otros meses = histórico)
     SNAPSHOTS=SNAPSHOTS.filter(s=>(s.artifactKey||"")!==histKey);
     SNAPSHOTS.push(entry);
     ok++;
   });
-  saveSnapshots(); saveAppr();
+  saveSnapshots(); saveSnapPhotos(); saveAppr();
   toast("Guardados "+ok+" organigramas en el Repositorio ("+repoMonthLabel(now)+")");
   if(VIEW==="repo")renderRepo();
 }
@@ -2029,47 +2046,44 @@ function repoMonthKey(iso){ const d=new Date(iso); return d.getFullYear()+"-"+St
 function repoMonthLabel(iso){ const d=new Date(iso); const M=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]; return M[d.getMonth()]+" "+d.getFullYear(); }
 function repoFolderOf(s){ return (s.artifactType==="global")?"Global":(s.country||"Sin país"); }
 function repoYearKey(iso){ return String(new Date(iso).getFullYear()); }
-function repoOpen(c){ REPO_NAV={country:c,year:null,month:null}; renderRepo(); }
-function repoOpenYear(y){ REPO_NAV.year=y; REPO_NAV.month=null; renderRepo(); }
+function repoOpenYear(y){ REPO_NAV={year:y,country:null,month:null}; renderRepo(); }
+function repoOpen(c){ REPO_NAV.country=c; REPO_NAV.month=null; renderRepo(); }
 function repoOpenMonth(m){ REPO_NAV.month=m; renderRepo(); }
-function repoBack(){ if(REPO_NAV.month)REPO_NAV.month=null; else if(REPO_NAV.year)REPO_NAV.year=null; else REPO_NAV.country=null; renderRepo(); }
+function repoBack(){ if(REPO_NAV.month)REPO_NAV.month=null; else if(REPO_NAV.country)REPO_NAV.country=null; else REPO_NAV.year=null; renderRepo(); }
 function renderRepo(){
   const body=document.getElementById("repoBody");
-  if(!SNAPSHOTS.length){ REPO_NAV={country:null,year:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Aún no hay organigramas guardados. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
+  if(!SNAPSHOTS.length){ REPO_NAV={year:null,country:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Aún no hay organigramas guardados. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
   const ord={global:0,country:1,department:2,area:3}; const tlabel={global:"Global",country:"General",department:"Departamento",area:"Área"};
-  // agrupar por país
-  const folders={}; SNAPSHOTS.forEach(s=>{ const fk=repoFolderOf(s); (folders[fk]||(folders[fk]=[])).push(s); });
-  // NIVEL 1: carpetas de país
+  // NIVEL 1: carpetas de AÑO ("Organigramas del 2026")
+  const years={}; SNAPSHOTS.forEach(s=>{ const yk=repoYearKey(s.approvedAt); (years[yk]||(years[yk]=[])).push(s); });
+  const ykeys=Object.keys(years).sort().reverse();
+  if(!REPO_NAV.year || !years[REPO_NAV.year]){
+    let h=`<div class="repogrid">`;
+    ykeys.forEach(yk=>{ h+=`<div class="repocard" onclick="repoOpenYear('${yk}')"><div class="repoicon">📁</div><div class="reponame">Organigramas del ${esc(yk)}</div><div class="repomuted">${years[yk].length} organigrama${years[yk].length===1?"":"s"}</div></div>`; });
+    h+=`</div>`; body.innerHTML=h; return;
+  }
+  const itemsY=years[REPO_NAV.year];
+  // NIVEL 2: carpetas de PAÍS (dentro del año)
+  const folders={}; itemsY.forEach(s=>{ const fk=repoFolderOf(s); (folders[fk]||(folders[fk]=[])).push(s); });
   if(!REPO_NAV.country || !folders[REPO_NAV.country]){
     const keys=Object.keys(folders).sort((a,b)=>{ if(a==="Global")return -1; if(b==="Global")return 1; return a.localeCompare(b,"es"); });
-    let h=`<div class="repogrid">`;
+    let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Años</button><b class="disp" style="margin-left:8px">📁 Organigramas del ${esc(REPO_NAV.year)}</b><div class="spacer"></div></div>`;
+    h+=`<div class="repogrid">`;
     keys.forEach(fk=>{ const flag=(fk!=="Global")?flagSVG(fk):""; h+=`<div class="repocard" onclick="repoOpen('${esc(fk)}')"><div class="repoicon">${flag||"📁"}</div><div class="reponame">${esc(fk)}</div><div class="repomuted">${folders[fk].length} organigrama${folders[fk].length===1?"":"s"}</div></div>`; });
     h+=`</div>`; body.innerHTML=h; return;
   }
   const items0=folders[REPO_NAV.country];
   const flag=(REPO_NAV.country!=="Global")?flagSVG(REPO_NAV.country):"";
-  // agrupar por AÑO
-  const years={}; items0.forEach(s=>{ const yk=repoYearKey(s.approvedAt); (years[yk]||(years[yk]=[])).push(s); });
-  const ykeys=Object.keys(years).sort().reverse();
-  // NIVEL 2: carpetas de AÑO ("Organigramas del 2026")
-  if(!REPO_NAV.year || !years[REPO_NAV.year]){
-    let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Países</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)}</b><div class="spacer"></div><button class="btn ghost sm" onclick="exportRepoCountry('${esc(REPO_NAV.country)}')">⬇︎ Descargar todo (.pptx)</button></div>`;
-    h+=`<div class="repogrid">`;
-    ykeys.forEach(yk=>{ h+=`<div class="repocard" onclick="repoOpenYear('${yk}')"><div class="repoicon">📁</div><div class="reponame">Organigramas del ${esc(yk)}</div><div class="repomuted">${years[yk].length} organigrama${years[yk].length===1?"":"s"}</div></div>`; });
-    h+=`</div>`; body.innerHTML=h; return;
-  }
-  const itemsY=years[REPO_NAV.year];
-  // agrupar por mes (dentro del año)
-  const months={}; itemsY.forEach(s=>{ const mk=repoMonthKey(s.approvedAt); (months[mk]||(months[mk]=[])).push(s); });
+  // NIVEL 3: carpetas de MES (dentro del año+país)
+  const months={}; items0.forEach(s=>{ const mk=repoMonthKey(s.approvedAt); (months[mk]||(months[mk]=[])).push(s); });
   const mkeys=Object.keys(months).sort().reverse();
-  // NIVEL 3: carpetas de mes
   if(!REPO_NAV.month || !months[REPO_NAV.month]){
-    let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Años</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)} · 📁 Organigramas del ${esc(REPO_NAV.year)}</b><div class="spacer"></div></div>`;
+    let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Países</button><b class="disp" style="margin-left:8px">📁 Organigramas del ${esc(REPO_NAV.year)} · ${flag||"📁"} ${esc(REPO_NAV.country)}</b><div class="spacer"></div><button class="btn ghost sm" onclick="exportRepoCountry('${esc(REPO_NAV.country)}')">⬇︎ Descargar todo (.pptx)</button></div>`;
     h+=`<div class="repogrid">`;
     mkeys.forEach(mk=>{ const lab=repoMonthLabel(months[mk][0].approvedAt); h+=`<div class="repocard" onclick="repoOpenMonth('${mk}')"><div class="repoicon">🗓</div><div class="reponame">${esc(lab)}</div><div class="repomuted">${months[mk].length} organigrama${months[mk].length===1?"":"s"}</div></div>`; });
     h+=`</div>`; body.innerHTML=h; return;
   }
-  // NIVEL 4: lista alfabética de organigramas del país+año+mes
+  // NIVEL 4: lista alfabética de organigramas del año+país+mes
   const items=months[REPO_NAV.month].slice().sort((a,b)=>(a.publicSnapshot.title||"").localeCompare(b.publicSnapshot.title||"","es")||(a.publicSnapshot.subtitle||"").localeCompare(b.publicSnapshot.subtitle||"","es"));
   let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Meses</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)} · 🗓 ${esc(repoMonthLabel(items[0].approvedAt))}</b><div class="spacer"></div><span class="muted">${items.length} organigrama${items.length===1?"":"s"}</span></div>`;
   h+=`<div class="tblscroll" style="max-height:none"><table class="grid"><thead><tr><th>Nombre</th><th>Tipo</th><th>Guardado</th><th></th></tr></thead><tbody>`;
