@@ -1919,17 +1919,60 @@ function approveCurrent(){
 }
 // Guardar (Dashboard): lleva los organigramas actuales al Repositorio, sustituyendo los archivados con la misma clave.
 function saveChartsToRepo(){
-  if(!CHARTS.length){ toast("No hay organigramas para guardar"); return; }
-  if(Object.keys(PHOTOS).length) matchPhotos();   // re-aplica las fotos actuales a todos los modelos antes de congelar el snapshot
-  const savedId=CHART_ID, savedModel=MODEL; let ok=0;
-  CHARTS.forEach(c=>{ CHART_ID=c.id; MODEL=c.model; const v=chartViewObject(); if(!v||!v.root)return;
-    const key=artifactKey(v);
-    const entry={artifactId:uid("art"),artifactType:c.type,country:(v.pais||v.country||""),rootPositionId:v.root.positionId,approvedAt:new Date().toISOString(),approvedBy:"dashboard",publicDataRevision:Date.now(),publicSnapshot:createPublicSnapshot(v),artifactKey:key};
-    SNAPSHOTS=SNAPSHOTS.filter(s=>s.artifactKey!==key); SNAPSHOTS.push(entry);
-    APPR[key]={approved:true,dirty:false,at:entry.approvedAt,by:"dashboard",snapshotId:entry.artifactId}; ok++; });
+  if(Object.keys(PHOTOS).length) matchPhotos();   // re-aplica las fotos actuales antes de congelar el snapshot
+  const savedId=CHART_ID, savedModel=MODEL;
+  const views=collectAllViews();   // general + departamentos + áreas (desde CHARTS o desde MODEL)
   CHART_ID=savedId; MODEL=savedModel;
+  if(!views.length){ toast("No hay organigramas para guardar"); return; }
+  // Mes/Año actual: define la CARPETA histórica. Guardar el mismo organigrama en meses distintos
+  // crea versiones separadas; guardarlo dos veces el mismo mes actualiza esa versión del mes.
+  const now=new Date().toISOString();
+  const mk=repoMonthKey(now);   // "YYYY-MM"
+  let ok=0;
+  views.forEach(v=>{
+    if(!v||!v.root)return;
+    const baseKey=artifactKey(v);
+    const histKey=baseKey+"@"+mk;   // clave histórica: organigrama + mes/año
+    const entry={artifactId:uid("art"),artifactType:v.type,country:(v.pais||v.country||""),rootPositionId:v.root.positionId,approvedAt:now,approvedBy:"dashboard",publicDataRevision:Date.now(),publicSnapshot:createPublicSnapshot(v),artifactKey:histKey,baseKey:baseKey,monthKey:mk};
+    // Reemplaza SOLO la versión del MISMO organigrama en el MISMO mes (mantiene los otros meses = histórico)
+    SNAPSHOTS=SNAPSHOTS.filter(s=>(s.artifactKey||"")!==histKey);
+    SNAPSHOTS.push(entry);
+    ok++;
+  });
   saveSnapshots(); saveAppr();
-  toast("Guardados "+ok+" organigramas en el Repositorio");
+  toast("Guardados "+ok+" organigramas en el Repositorio ("+repoMonthLabel(now)+")");
+  if(VIEW==="repo")renderRepo();
+}
+// Reúne TODAS las vistas actuales (general + cada departamento + cada área) para guardar/exportar.
+// Usa CHARTS si existen; si CHARTS está vacío, las reconstruye desde el MODELO actual.
+function collectAllViews(){
+  const out=[]; const savedId=CHART_ID, savedModel=MODEL;
+  const tcc=titleCaseCargo;
+  const addFromModel=(model,pais)=>{
+    let iso; try{ iso=JSON.parse(JSON.stringify(model)); }catch(e){ iso=model; }
+    if(iso && !iso._singleScope) iso._singleScope="country";
+    MODEL=iso; CHART_ID=null;
+    if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL);
+    applyOrgFunction(); inheritCountry();
+    const isGer=p=>/^gerente\b/.test(norm(p.role));
+    const A=activePositions();
+    const leader=A.find(p=>/^gerente de operacion/.test(norm(p.role)))||A.find(p=>isGer(p)&&(!p.managerPositionId||!A.some(x=>x.positionId===p.managerPositionId)))||chartRoot()||A[0];
+    const leaderId=leader?leader.positionId:null; const seen=new Set();
+    if(leader){ seen.add(leaderId); const v=buildAreaView(leaderId); if(v&&v.root){ v.type="country"; v.title="Organigrama General"; v.subtitle=pais||((leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):""); if(v.otherReports)v.otherReports=paisOrder(v.otherReports); v.pais=pais||""; out.push(v); } }
+    activePositions().forEach(p=>{ if(seen.has(p.positionId))return; if(!childrenOf(p.positionId).length)return; seen.add(p.positionId);
+      const v=buildAreaView(p.positionId); if(v&&v.root){ const mgr=pos(p.managerPositionId); v.title=(mgr?unitName(mgr.role):"")||(p.department?tcc(p.department):unitName(p.role))||tcc(sentence(p.role)); v.subtitle=p.area?tcc(p.area):(p.department?tcc(p.department):""); v.pais=pais||""; out.push(v); } });
+  };
+  if(CHARTS.length){
+    // Global (si existe) con su lógica propia
+    CHARTS.filter(c=>c.type==="global").forEach(gc=>{ let iso; try{iso=JSON.parse(JSON.stringify(gc.model));}catch(e){iso=gc.model;} if(iso)iso._singleScope="global"; MODEL=iso; CHART_ID=null; if(Object.keys(PHOTOS).length)applyPhotosToModel(MODEL); applyOrgFunction(); ensureDirector(); attachOrphansToDirector(); inheritCountry(); applyOrgFunction(); const v=buildGlobalView(); if(v&&v.root)out.push(v); });
+    // Un modelo por país (dedupe por referencia y por nombre de país normalizado)
+    const done=[]; const seenPais=new Set();
+    CHARTS.filter(c=>c.type!=="global").forEach(c=>{ if(done.some(x=>x===c.model))return; const pk=norm(c.pais||""); if(pk&&seenPais.has(pk))return; if(pk)seenPais.add(pk); done.push(c.model); addFromModel(c.model, c.pais||""); });
+  } else if(MODEL && (MODEL.positions||[]).some(p=>p.status!=="inactive")){
+    addFromModel(savedModel, SELECTED_COUNTRY||"");
+  }
+  CHART_ID=savedId; MODEL=savedModel;
+  return out;
 }
 function approveAll(){
   if(!confirm("¿Aprobar todos los organigramas válidos (Global y cada País)?"))return;
