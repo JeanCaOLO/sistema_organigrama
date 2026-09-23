@@ -359,7 +359,7 @@ function sbPushAll(){
   sbPush("olo_approval_state_v1", APPR);
 }
 let MODEL={persons:[],positions:[],assignments:[],classificationRules:[],managerOverrides:[]};
-let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COUNTRY=""; let REPO_NAV={country:null,month:null};
+let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COUNTRY=""; let REPO_NAV={country:null,year:null,month:null};
 let CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]};
 let SNAPSHOTS=[];
 let VIEW="admin";
@@ -1441,7 +1441,7 @@ function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(
 /* ===================== NAVEGACIÓN DE VISTAS ===================== */
 function setView(v){ VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
-  if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={country:null,month:null}; renderRepo(); }
+  if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={country:null,year:null,month:null}; renderRepo(); }
 }
 function cap(v){ return {admin:"Admin",dash:"Dash",ger:"Ger",repo:"Repo"}[v]; }
 // Clasifica cada posición según la columna FUNCIÓN ORGANIGRAMA del Excel (prevalece sobre la automática).
@@ -2028,12 +2028,14 @@ function setManualRisk(id,val){ CONFIDENTIAL.riskOverrides=CONFIDENTIAL.riskOver
 function repoMonthKey(iso){ const d=new Date(iso); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
 function repoMonthLabel(iso){ const d=new Date(iso); const M=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]; return M[d.getMonth()]+" "+d.getFullYear(); }
 function repoFolderOf(s){ return (s.artifactType==="global")?"Global":(s.country||"Sin país"); }
-function repoOpen(c){ REPO_NAV={country:c,month:null}; renderRepo(); }
+function repoYearKey(iso){ return String(new Date(iso).getFullYear()); }
+function repoOpen(c){ REPO_NAV={country:c,year:null,month:null}; renderRepo(); }
+function repoOpenYear(y){ REPO_NAV.year=y; REPO_NAV.month=null; renderRepo(); }
 function repoOpenMonth(m){ REPO_NAV.month=m; renderRepo(); }
-function repoBack(){ if(REPO_NAV.month)REPO_NAV.month=null; else REPO_NAV.country=null; renderRepo(); }
+function repoBack(){ if(REPO_NAV.month)REPO_NAV.month=null; else if(REPO_NAV.year)REPO_NAV.year=null; else REPO_NAV.country=null; renderRepo(); }
 function renderRepo(){
   const body=document.getElementById("repoBody");
-  if(!SNAPSHOTS.length){ REPO_NAV={country:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Aún no hay organigramas guardados. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
+  if(!SNAPSHOTS.length){ REPO_NAV={country:null,year:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Aún no hay organigramas guardados. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
   const ord={global:0,country:1,department:2,area:3}; const tlabel={global:"Global",country:"General",department:"Departamento",area:"Área"};
   // agrupar por país
   const folders={}; SNAPSHOTS.forEach(s=>{ const fk=repoFolderOf(s); (folders[fk]||(folders[fk]=[])).push(s); });
@@ -2046,17 +2048,28 @@ function renderRepo(){
   }
   const items0=folders[REPO_NAV.country];
   const flag=(REPO_NAV.country!=="Global")?flagSVG(REPO_NAV.country):"";
-  // agrupar por mes
-  const months={}; items0.forEach(s=>{ const mk=repoMonthKey(s.approvedAt); (months[mk]||(months[mk]=[])).push(s); });
-  const mkeys=Object.keys(months).sort().reverse();
-  // NIVEL 2: carpetas de mes
-  if(!REPO_NAV.month || !months[REPO_NAV.month]){
+  // agrupar por AÑO
+  const years={}; items0.forEach(s=>{ const yk=repoYearKey(s.approvedAt); (years[yk]||(years[yk]=[])).push(s); });
+  const ykeys=Object.keys(years).sort().reverse();
+  // NIVEL 2: carpetas de AÑO ("Organigramas del 2026")
+  if(!REPO_NAV.year || !years[REPO_NAV.year]){
     let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Países</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)}</b><div class="spacer"></div><button class="btn ghost sm" onclick="exportRepoCountry('${esc(REPO_NAV.country)}')">⬇︎ Descargar todo (.pptx)</button></div>`;
+    h+=`<div class="repogrid">`;
+    ykeys.forEach(yk=>{ h+=`<div class="repocard" onclick="repoOpenYear('${yk}')"><div class="repoicon">📁</div><div class="reponame">Organigramas del ${esc(yk)}</div><div class="repomuted">${years[yk].length} organigrama${years[yk].length===1?"":"s"}</div></div>`; });
+    h+=`</div>`; body.innerHTML=h; return;
+  }
+  const itemsY=years[REPO_NAV.year];
+  // agrupar por mes (dentro del año)
+  const months={}; itemsY.forEach(s=>{ const mk=repoMonthKey(s.approvedAt); (months[mk]||(months[mk]=[])).push(s); });
+  const mkeys=Object.keys(months).sort().reverse();
+  // NIVEL 3: carpetas de mes
+  if(!REPO_NAV.month || !months[REPO_NAV.month]){
+    let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Años</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)} · 📁 Organigramas del ${esc(REPO_NAV.year)}</b><div class="spacer"></div></div>`;
     h+=`<div class="repogrid">`;
     mkeys.forEach(mk=>{ const lab=repoMonthLabel(months[mk][0].approvedAt); h+=`<div class="repocard" onclick="repoOpenMonth('${mk}')"><div class="repoicon">🗓</div><div class="reponame">${esc(lab)}</div><div class="repomuted">${months[mk].length} organigrama${months[mk].length===1?"":"s"}</div></div>`; });
     h+=`</div>`; body.innerHTML=h; return;
   }
-  // NIVEL 3: lista alfabética de organigramas del país+mes
+  // NIVEL 4: lista alfabética de organigramas del país+año+mes
   const items=months[REPO_NAV.month].slice().sort((a,b)=>(a.publicSnapshot.title||"").localeCompare(b.publicSnapshot.title||"","es")||(a.publicSnapshot.subtitle||"").localeCompare(b.publicSnapshot.subtitle||"","es"));
   let h=`<div class="foldhead" style="margin-bottom:12px"><button class="btn ghost sm" onclick="repoBack()">← Meses</button><b class="disp" style="margin-left:8px">${flag||"📁"} ${esc(REPO_NAV.country)} · 🗓 ${esc(repoMonthLabel(items[0].approvedAt))}</b><div class="spacer"></div><span class="muted">${items.length} organigrama${items.length===1?"":"s"}</span></div>`;
   h+=`<div class="tblscroll" style="max-height:none"><table class="grid"><thead><tr><th>Nombre</th><th>Tipo</th><th>Guardado</th><th></th></tr></thead><tbody>`;
