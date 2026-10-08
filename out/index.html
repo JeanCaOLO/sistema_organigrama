@@ -294,6 +294,7 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
 <input type="file" id="filePhotoDir" class="fileinput" webkitdirectory directory multiple onchange="onPhotoDir(event)">
 <input type="file" id="fileJSON" class="fileinput" accept=".json" onchange="onJSON(event)">
 <div id="modalHost"></div>
+<div id="profileHost"></div>
 <div class="toast" id="toast"></div>
 
 <script>window.__OLO_LOGO__='data:image/jpeg;base64,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';</script>
@@ -370,6 +371,22 @@ let MODEL={persons:[],positions:[],assignments:[],classificationRules:[],manager
 let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COUNTRY=""; let REPO_NAV={year:null,country:null,month:null};
 let CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]};
 let SNAPSHOTS=[];
+
+/* ===================== CONTROL DE ACCESO POR PERFIL (Opción B) =====================
+   NOTA DE SEGURIDAD: esto es un filtro de interfaz (no es seguridad fuerte). Los datos
+   siguen en el navegador; para control real se necesita backend con RLS. Sirve para que
+   cada usuario vea en su día a día solo lo que le corresponde.
+   ACCESS.scope: 'admin' (todo + Administrador), 'global' (todo, sin Admin), 'pais' (un país). */
+const K_ACCESS="olo_access_profile_v1";
+let ACCESS={scope:null,country:""};
+function isAdmin(){ return ACCESS.scope==="admin"; }
+function canSeeGlobal(){ return ACCESS.scope==="admin"||ACCESS.scope==="global"; }
+function canSeeAllCountries(){ return ACCESS.scope==="admin"||ACCESS.scope==="global"; }
+function canSeeCountry(c){ if(canSeeAllCountries())return true; if(ACCESS.scope!=="pais")return false; return norm(c||"")===norm(ACCESS.country||""); }
+function allowedCountries(list){ list=list||[]; if(canSeeAllCountries())return list.slice(); return list.filter(c=>canSeeCountry(c)); }
+function loadAccess(){ try{ const r=localStorage.getItem(K_ACCESS); if(r){ const a=JSON.parse(r); if(a&&a.scope){ ACCESS=a; } } }catch(e){} }
+function saveAccess(){ try{ localStorage.setItem(K_ACCESS, JSON.stringify(ACCESS)); }catch(e){} }
+
 let VIEW="admin";
 let UNDO=[], REDO=[];
 // permisos (adaptadores) — reemplazar por auth real en backend
@@ -533,7 +550,7 @@ function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); i
     html+='<optgroup label="'+esc(gp[1])+'">'+items.map(c=>`<option value="${esc(c.id)}" ${CHART_ID===c.id?"selected":""}>${esc(c.name)}</option>`).join("")+'</optgroup>'; });
   el.innerHTML=html; }
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
-function goMode(m){ if(m==="global"){ const g=CHARTS.find(c=>c.type==="global"); if(g){ NAVHIST=[]; selectChart(g.id); } else toast("Aún no has cargado el Organigrama Global (botón ① en Administrador)"); }
+function goMode(m){ if(m==="global"){ if(!canSeeGlobal()){ toast("Tu perfil no tiene acceso al Organigrama Global"); return; } const g=CHARTS.find(c=>c.type==="global"); if(g){ NAVHIST=[]; selectChart(g.id); } else toast("Aún no has cargado el Organigrama Global (botón ① en Administrador)"); }
   else { const p=CHARTS.find(c=>c.type==="country"); if(p){ NAVHIST=[]; selectChart(p.id); } else toast("Aún no has cargado los Organigramas de País (botón ② en Administrador)"); } }
 // Radiografía de los datos guardados: por qué "Todos" exporta lo que exporta.
 function diagCharts(){
@@ -619,10 +636,12 @@ function exportAllCharts(){
     // 1) Reúne los MODELOS distintos: el global y el de cada país (los charts de país comparten modelo).
     //    Agrupa por REFERENCIA de modelo y también por NOMBRE de país normalizado, de modo que
     //    "Costa Rica" y "COSTA RICA" (dos cargas del mismo país) NO se dupliquen.
-    const globalCharts=CHARTS.filter(c=>c.type==="global");
+    // Control de acceso: el Global solo si el perfil puede verlo; los países, solo los permitidos.
+    const globalCharts=canSeeGlobal()?CHARTS.filter(c=>c.type==="global"):[];
     const countryModels=[];  // {model,pais}
     const seenPais=new Set();
     CHARTS.filter(c=>c.type!=="global").forEach(c=>{
+      if(!canSeeCountry(c.pais||"")) return;   // perfil de país: solo su país
       const byRef=countryModels.find(x=>x.model===c.model);
       if(byRef){ if(!byRef.pais && c.pais) byRef.pais=c.pais; return; }
       const pk=norm(c.pais||"");
@@ -686,6 +705,7 @@ function exportAllCharts(){
     //    su rootId directamente contra su propio modelo. Cubre el caso de datos guardados donde
     //    el modelo de país esté "plano" pero cada chart tenga su rootId válido en su modelo.
     CHARTS.filter(c=>c.type==="department"||c.type==="area").forEach(c=>{
+      if(!canSeeCountry(c.pais||"")) return;   // control de acceso: solo países permitidos
       let iso; try{ iso=JSON.parse(JSON.stringify(c.model)); }catch(e){ iso=c.model; }
       if(iso && !iso._singleScope) iso._singleScope="country";
       CHART_ID=null; MODEL=iso;
@@ -1455,7 +1475,10 @@ function artifactKey(view){ return view.type==="global"?"global":view.type==="co
 function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(APPR[k]&&APPR[k].approved&&!APPR[k].dirty){ APPR[k].dirty=true; ch=true; } }); if(ch)saveAppr(); }
 
 /* ===================== NAVEGACIÓN DE VISTAS ===================== */
-function setView(v){ VIEW=v;
+function setView(v){
+  // Control de acceso: el Administrador de datos es solo para el perfil Admin.
+  if(v==="admin" && ACCESS.scope && !isAdmin()){ toast("Solo el perfil Administrador puede entrar al Administrador"); v="dash"; }
+  VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
   if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={year:null,country:null,month:null}; renderRepo(); }
 }
@@ -1502,7 +1525,7 @@ function setDashType(t){ pushNav(); DASH.type=t; DASH.page=0; DASH.rootPositionI
 function fillRootSel(list){ const rs=document.getElementById("rootSel"); if(!rs)return; list=[...list].sort((a,b)=>(((occupantOf(a.positionId)||{}).name)||a.role||"").localeCompare(((occupantOf(b.positionId)||{}).name)||b.role||"","es")); rs.innerHTML=list.length?list.map(p=>`<option value="${esc(p.positionId)}" ${DASH.rootPositionId===p.positionId?"selected":""}>${esc((occupantOf(p.positionId)||{}).name||p.role)} — ${esc(p.role)}</option>`).join(""):`<option value="">(sin elementos en este nivel)</option>`; }
 function setDashRoot(id){ DASH.rootPositionId=id; DASH.page=0; renderDash(); }
 function setDashCountry(c){ DASH.country=c; DASH.page=0; renderDash(); }
-function fillCountrySel(el,val){ const cs=listCountries(); el.innerHTML=cs.length?cs.map(c=>`<option value="${esc(c)}" ${norm(c)===norm(val)?"selected":""}>${esc(c)}</option>`).join(""):`<option value="">(sin países)</option>`; }
+function fillCountrySel(el,val){ const cs=allowedCountries(listCountries()); el.innerHTML=cs.length?cs.map(c=>`<option value="${esc(c)}" ${norm(c)===norm(val)?"selected":""}>${esc(c)}</option>`).join(""):`<option value="">(sin países)</option>`; }
 function renderDash(){
   updateBackBtn();
   const autoSeg=document.getElementById("autoSeg"), modeSeg=document.getElementById("modeSeg");
@@ -1511,7 +1534,7 @@ function renderDash(){
     const c=CHARTS.find(x=>x.id===CHART_ID); const mode=(c&&c.type==="global")?"global":"pais";
     if(autoSeg)autoSeg.style.display="none"; if(modeSeg)modeSeg.style.display=CHARTS.length?"":"none";
     const mg=document.getElementById("mGlobal"), mp=document.getElementById("mPais");
-    if(mg){ mg.style.display=CHARTS.some(x=>x.type==="global")?"":"none"; mg.classList.toggle("on",mode==="global"); }
+    if(mg){ mg.style.display=(canSeeGlobal()&&CHARTS.some(x=>x.type==="global"))?"":"none"; mg.classList.toggle("on",mode==="global"); }
     if(mp){ mp.style.display=CHARTS.some(x=>x.type!=="global")?"":"none"; mp.classList.toggle("on",mode==="pais"); }
     const chartSel=document.getElementById("chartSel");
     const paisSel=document.getElementById("paisSel"), paisFlag=document.getElementById("paisFlag");
@@ -1530,6 +1553,11 @@ function renderDash(){
   if(modeSeg)modeSeg.style.display="none"; if(autoSeg)autoSeg.style.display="";
   fillChartSel(false);
   seg.forEach(id=>{const b=document.getElementById(id);if(b)b.style.display="";});
+  // Control de acceso: perfil de país no ve "Global"; se fuerza a su país.
+  if(!canSeeGlobal()){ const dvG=document.getElementById("dvGlobal"); if(dvG)dvG.style.display="none";
+    if(DASH.type==="global"){ DASH.type="country"; }
+    if(!DASH.country || !canSeeCountry(DASH.country)){ DASH.country=(allowedCountries(listCountries())[0]||ACCESS.country||""); }
+  }
   fillCountrySel(document.getElementById("countrySel"),DASH.country);
   document.getElementById("countrySel").style.display=DASH.type==="country"?"":"none";
   const v=currentViewObject();
@@ -1982,11 +2010,11 @@ function collectAllViews(){
       const v=buildAreaView(p.positionId); if(v&&v.root){ const mgr=pos(p.managerPositionId); v.title=(mgr?unitName(mgr.role):"")||(p.department?tcc(p.department):unitName(p.role))||tcc(sentence(p.role)); v.subtitle=p.area?tcc(p.area):(p.department?tcc(p.department):""); v.pais=pais||""; out.push(v); } });
   };
   if(CHARTS.length){
-    // Global (si existe) con su lógica propia
-    CHARTS.filter(c=>c.type==="global").forEach(gc=>{ let iso; try{iso=JSON.parse(JSON.stringify(gc.model));}catch(e){iso=gc.model;} if(iso)iso._singleScope="global"; MODEL=iso; CHART_ID=null; if(Object.keys(PHOTOS).length)applyPhotosToModel(MODEL); applyOrgFunction(); ensureDirector(); attachOrphansToDirector(); inheritCountry(); applyOrgFunction(); const v=buildGlobalView(); if(v&&v.root)out.push(v); });
-    // Un modelo por país (dedupe por referencia y por nombre de país normalizado)
+    // Global (si existe) con su lógica propia — solo si el perfil puede verlo
+    if(canSeeGlobal()) CHARTS.filter(c=>c.type==="global").forEach(gc=>{ let iso; try{iso=JSON.parse(JSON.stringify(gc.model));}catch(e){iso=gc.model;} if(iso)iso._singleScope="global"; MODEL=iso; CHART_ID=null; if(Object.keys(PHOTOS).length)applyPhotosToModel(MODEL); applyOrgFunction(); ensureDirector(); attachOrphansToDirector(); inheritCountry(); applyOrgFunction(); const v=buildGlobalView(); if(v&&v.root)out.push(v); });
+    // Un modelo por país (dedupe por referencia y por nombre de país normalizado) — solo países permitidos
     const done=[]; const seenPais=new Set();
-    CHARTS.filter(c=>c.type!=="global").forEach(c=>{ if(done.some(x=>x===c.model))return; const pk=norm(c.pais||""); if(pk&&seenPais.has(pk))return; if(pk)seenPais.add(pk); done.push(c.model); addFromModel(c.model, c.pais||""); });
+    CHARTS.filter(c=>c.type!=="global").forEach(c=>{ if(!canSeeCountry(c.pais||""))return; if(done.some(x=>x===c.model))return; const pk=norm(c.pais||""); if(pk&&seenPais.has(pk))return; if(pk)seenPais.add(pk); done.push(c.model); addFromModel(c.model, c.pais||""); });
   } else if(MODEL && (MODEL.positions||[]).some(p=>p.status!=="inactive")){
     addFromModel(savedModel, SELECTED_COUNTRY||"");
   }
@@ -2057,9 +2085,12 @@ function repoOpenYear(y){ REPO_NAV={year:y,country:null,month:null}; renderRepo(
 function repoOpen(c){ REPO_NAV.country=c; REPO_NAV.month=null; renderRepo(); }
 function repoOpenMonth(m){ REPO_NAV.month=m; renderRepo(); }
 function repoBack(){ if(REPO_NAV.month)REPO_NAV.month=null; else if(REPO_NAV.country)REPO_NAV.country=null; else REPO_NAV.year=null; renderRepo(); }
+// Snapshots visibles según el perfil (admin/global ven todo; país solo el suyo; país NO ve Global).
+function visibleSnapshots(){ return SNAPSHOTS.filter(s=>{ const fk=repoFolderOf(s); if(fk==="Global")return canSeeGlobal(); return canSeeCountry(fk); }); }
 function renderRepo(){
   const body=document.getElementById("repoBody");
-  if(!SNAPSHOTS.length){ REPO_NAV={year:null,country:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">Aún no hay organigramas guardados. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
+  const SNAPSHOTS=visibleSnapshots();   // sombrea la global: todo el render respeta el acceso
+  if(!SNAPSHOTS.length){ REPO_NAV={year:null,country:null,month:null}; body.innerHTML=`<div class="panel" style="padding:40px;text-align:center;color:var(--muted)">No hay organigramas para tu perfil. En el <b>Dashboard</b> usa <b>💾 Guardar en repositorio</b>.</div>`; return; }
   const ord={global:0,country:1,department:2,area:3}; const tlabel={global:"Global",country:"General",department:"Departamento",area:"Área"};
   // NIVEL 1: carpetas de AÑO ("Organigramas del 2026")
   const years={}; SNAPSHOTS.forEach(s=>{ const yk=repoYearKey(s.approvedAt); (years[yk]||(years[yk]=[])).push(s); });
@@ -2097,7 +2128,7 @@ function renderRepo(){
   items.forEach(s=>{ h+=`<tr><td class="rolecell"><b>${esc(s.publicSnapshot.title)}</b><span>${esc(s.publicSnapshot.subtitle||"")}</span></td><td>${tlabel[s.artifactType]||s.artifactType}</td><td class="muted">${new Date(s.approvedAt).toLocaleDateString("es")}</td><td><div class="rowbtns"><button class="btn ghost sm" onclick="viewSnapshot('${s.artifactId}')">Ver</button><button class="btn ghost sm" onclick="exportSnapshot('${s.artifactId}')">⬇︎ .pptx</button></div></td></tr>`; });
   h+=`</tbody></table></div>`; body.innerHTML=h;
 }
-function exportRepoCountry(fk){ const items=SNAPSHOTS.filter(s=>((s.artifactType==="global")?"Global":(s.country||"Sin país"))===fk); if(!items.length)return; exportLeadersDeck(items,"Repositorio_"+slug(fk)+".pptx"); }
+function exportRepoCountry(fk){ if(fk==="Global"? !canSeeGlobal() : !canSeeCountry(fk)){ toast("Tu perfil no tiene acceso a esa carpeta"); return; } const items=SNAPSHOTS.filter(s=>repoFolderOf(s)===fk); if(!items.length)return; exportLeadersDeck(items,"Repositorio_"+slug(fk)+".pptx"); }
 function exportFolder(fk){ exportLeadersDeck(SNAPSHOTS.filter(s=>s.artifactType===fk),"Repositorio_"+fk+".pptx"); }
 function viewSnapshot(id){ const s=SNAPSHOTS.find(x=>x.artifactId===id); if(!s)return; document.getElementById("modalHost").innerHTML=`<div class="overlay" onclick="if(event.target===this)this.remove()"><div class="modal" style="max-width:820px"><h3>${esc(s.publicSnapshot.title)} · ${esc(s.publicSnapshot.subtitle)}</h3><div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">${snapSVG(s.publicSnapshot,0)}</div><div class="modal-foot"><button class="btn ghost" onclick="this.closest('.overlay').remove()">Cerrar</button><button class="btn primary" onclick="exportSnapshot('${id}')">⬇︎ PowerPoint</button></div></div></div>`; }
 
@@ -2270,7 +2301,7 @@ function flagSVG(c){ const n=norm(c); const F={
 }; const g=F[n]; return g?('<svg width="22" height="14" viewBox="0 0 24 16" style="vertical-align:middle;margin-right:5px;border:1px solid #ccc;border-radius:2px">'+g+'</svg>'):''; }
 // Dashboard: fija/actualiza el país de los organigramas de país actuales
 // Lista de países realmente cargados (por los organigramas de país existentes)
-function loadedCountries(){ return [...new Set(CHARTS.filter(c=>c.type!=="global").map(c=>(c.pais||"").trim()).filter(Boolean))].sort((a,b)=>norm(a).localeCompare(norm(b),"es")); }
+function loadedCountries(){ const all=[...new Set(CHARTS.filter(c=>c.type!=="global").map(c=>(c.pais||"").trim()).filter(Boolean))].sort((a,b)=>norm(a).localeCompare(norm(b),"es")); return allowedCountries(all); }
 function setChartsCountry(c){
   const target=(c||"").trim();
   // Si el país elegido YA está cargado (varios países coexisten), cambia a su "Organigrama General".
@@ -2513,18 +2544,78 @@ function onJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileRea
 /* ===================== INIT ===================== */
 function assignPersonToPosition(personId,positionId,primary){ MODEL.assignments=MODEL.assignments.filter(a=>!(a.positionId===positionId&&a.isPrimaryRole&&primary)); MODEL.assignments.push({assignmentId:uid("asg"),personId,positionId,isPrimaryRole:!!primary,active:true}); const p=pos(positionId); if(p)p.status="occupied"; saveModel(); }
 function wireDrop(id,cb){ const el=document.getElementById(id); if(!el)return; ["dragenter","dragover"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add("over");})); ["dragleave","drop"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove("over");})); el.addEventListener("drop",e=>{ const files=[...(e.dataTransfer.files||[])]; if(files.length)cb(files); }); }
+/* ===================== SELECTOR DE PERFIL (control de acceso Opción B) ===================== */
+const ADMIN_PIN="olo2026";   // PIN para entrar como Admin (cámbialo aquí si lo necesitas)
+// Países que se ofrecen en el selector: los que existan en los datos + una lista base.
+function profileCountries(){
+  const base=["Costa Rica","Venezuela","Colombia","El Salvador","Guatemala"];
+  const fromData=[];
+  try{ (CHARTS||[]).forEach(c=>{ if(c.type!=="global"&&c.pais){ if(!fromData.some(x=>norm(x)===norm(c.pais))) fromData.push(c.pais); } });
+       (SNAPSHOTS||[]).forEach(s=>{ const p=repoFolderOf(s); if(p&&p!=="Global"&&p!=="Sin país"&&!fromData.some(x=>norm(x)===norm(p))) fromData.push(p); }); }catch(e){}
+  const all=fromData.slice();
+  base.forEach(b=>{ if(!all.some(x=>norm(x)===norm(b))) all.push(b); });
+  return all.sort((a,b)=>norm(a).localeCompare(norm(b),"es"));
+}
+function applyAccessUI(){
+  // Pestaña Administrador: solo Admin
+  const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=isAdmin()?"":"none";
+  // Botón de diagnóstico (🔍): técnico, solo Admin
+  const diagBtn=document.querySelector('button[onclick="diagCharts()"]'); if(diagBtn) diagBtn.style.display=isAdmin()?"":"none";
+  // Etiqueta del perfil activo en el header
+  let badge=document.getElementById("accessBadge");
+  if(!badge){ const host=document.querySelector("header.app .app-inner"); if(host){ badge=document.createElement("span"); badge.id="accessBadge"; badge.style.cssText="margin-left:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#EEF1F0;color:#141414;cursor:pointer;white-space:nowrap"; badge.title="Cambiar de perfil"; badge.onclick=()=>showProfilePicker(true); host.appendChild(badge); } }
+  if(badge){ const lab=ACCESS.scope==="admin"?"Admin":ACCESS.scope==="global"?"Global (todos)":("País: "+(ACCESS.country||"")); const fl=(ACCESS.scope==="pais")?flagSVG(ACCESS.country):""; badge.innerHTML=(fl||"👤")+" "+esc(lab)+"  ⌄"; }
+}
+function setProfile(scope,country){
+  ACCESS={scope:scope,country:country||""};
+  saveAccess();
+  if(ACCESS.scope==="pais"){ SELECTED_COUNTRY=ACCESS.country; }
+  const host=document.getElementById("profileHost"); if(host)host.innerHTML="";
+  applyAccessUI();
+  // Lleva a una vista permitida
+  if(VIEW==="admin" && !isAdmin()) setView(CHARTS.length?"dash":"repo"); else setView(VIEW||"dash");
+  renderDash();
+}
+function chooseProfile(scope,country){
+  if(scope==="admin"){
+    const pin=prompt("PIN de administrador:",""); if(pin===null)return;
+    if(pin!==ADMIN_PIN){ toast("PIN incorrecto"); return; }
+  }
+  setProfile(scope,country);
+}
+function showProfilePicker(allowClose){
+  const paises=profileCountries();
+  const card=(onclick,icon,titulo,sub)=>`<div class="repocard" style="cursor:pointer" onclick="${onclick}"><div class="repoicon">${icon}</div><div class="reponame">${esc(titulo)}</div><div class="repomuted">${esc(sub||"")}</div></div>`;
+  let cards="";
+  cards+=card("chooseProfile('global')","🌎","Global","Ve todos los países y el organigrama Global");
+  paises.forEach(p=>{ const fl=flagSVG(p)||"📁"; cards+=card("chooseProfile('pais','"+esc(p).replace(/'/g,"\\'")+"')",fl,p,"Ve solo "+esc(p)); });
+  cards+=card("chooseProfile('admin')","🛠","Administrador","Acceso total y gestión de datos (requiere PIN)");
+  const closeBtn=allowClose?`<button class="btn ghost" onclick="document.getElementById('profileHost').innerHTML=''">Cancelar</button>`:"";
+  document.getElementById("profileHost").innerHTML=`
+    <div class="overlay" style="z-index:9999">
+      <div class="modal" style="max-width:760px">
+        <h3 style="margin:0 0 4px">¿Con qué perfil quieres entrar?</h3>
+        <p class="sub" style="margin:0 0 14px">Elige tu alcance. Verás solo los organigramas de tu perfil en el Dashboard, el Repositorio y las descargas.</p>
+        <div class="repogrid">${cards}</div>
+        <div class="modal-foot">${closeBtn}</div>
+      </div>
+    </div>`;
+}
 async function init(){
   // 1) Traer la copia central desde Supabase a la caché local
   const traido = await sbPullAll();
   // 2) Cargar como siempre (ahora la caché ya tiene los datos de la nube)
-  load(); loadAppr();
+  load(); loadAppr(); loadAccess();
   // 3) Primera vez con Supabase vacío: subir lo que ya existía en este equipo
   if(USE_SB && !traido) sbPushAll();
   if(typeof window!=="undefined"&&window.__OLO_LOGO__){ const b=document.getElementById("brandLogo"); if(b)b.src=window.__OLO_LOGO__; }
   wireDrop("dropGlobal",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Global no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); if(Object.keys(PHOTOS).length) matchPhotos(); toast("Organigrama Global generado"); }, "global"); });
   wireDrop("dropCountry",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
   wireDrop("dropPhotos",files=>handlePhotoFiles(files.filter(f=>/^image\//.test(f.type))));
-  setView(CHARTS.length?"dash":"admin");
+  applyAccessUI();
+  // Control de acceso: si no hay perfil elegido, pedirlo antes de entrar.
+  if(!ACCESS.scope){ showProfilePicker(false); setView("dash"); }
+  else { const start=isAdmin()?(CHARTS.length?"dash":"admin"):"dash"; setView(start); }
 }
 if(typeof document!=="undefined"){ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init); else init(); }
 
