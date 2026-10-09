@@ -163,7 +163,7 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
   <section id="viewAdmin">
     <h2 class="title">Administrador de datos</h2>
     <p class="sub">Dos flujos independientes: (1) genera el <b>Organigrama Global</b> con su Excel; (2) genera los <b>Organigramas de País</b> (país, departamentos y áreas) con el Excel del país. Navega todos desde el Dashboard.</p>
-    <div class="tools" id="countryPick" style="flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
+    <div class="tools adminOnly" id="countryPick" style="flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px">
       <span style="font-size:13px;color:#4A4E52;font-weight:700">País a cargar:</span>
       <button class="btn ghost sm cflag" data-c="Venezuela" onclick="setLoadCountry('Venezuela')"><svg width="22" height="14" viewBox="0 0 24 16" style="vertical-align:middle;margin-right:5px;border:1px solid #ccc;border-radius:2px"><rect width="24" height="5.33" y="0" fill="#FFCC00"/><rect width="24" height="5.34" y="5.33" fill="#00247D"/><rect width="24" height="5.33" y="10.67" fill="#CF142B"/></svg>Venezuela</button>
       <button class="btn ghost sm cflag" data-c="Costa Rica" onclick="setLoadCountry('Costa Rica')"><svg width="22" height="14" viewBox="0 0 24 16" style="vertical-align:middle;margin-right:5px;border:1px solid #ccc;border-radius:2px"><rect width="24" height="16" fill="#002B7F"/><rect width="24" height="10" y="3" fill="#fff"/><rect width="24" height="4" y="6" fill="#CE1126"/></svg>Costa Rica</button>
@@ -174,18 +174,18 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
     <div class="kpis" id="kpis"></div>
     <div class="valwrap" id="validation"></div>
     <div class="tools">
-      <button class="btn ghost sm" onclick="downloadTemplateGlobal()">⬇︎ Plantilla Global</button>
+      <button class="btn ghost sm adminOnly" onclick="downloadTemplateGlobal()">⬇︎ Plantilla Global</button>
       <button class="btn ghost sm" onclick="downloadTemplatePais()">⬇︎ Plantilla País</button>
       <button class="btn ghost sm" onclick="openForm('')">＋ Agregar posición</button>
       <span class="muted" style="font-size:12px">Usa ✎ en la tabla para corregir errores de la carga del Excel.</span>
       <div class="spacer"></div>
-      <button class="btn ghost sm" onclick="loadDemo()">Cargar datos de ejemplo</button>
-      <button class="btn ghost sm" onclick="clearGlobal()" style="border-color:#F0C7C2;color:#A33A30">🗑 Limpiar Global</button>
+      <button class="btn ghost sm adminOnly" onclick="loadDemo()">Cargar datos de ejemplo</button>
+      <button class="btn ghost sm adminOnly" onclick="clearGlobal()" style="border-color:#F0C7C2;color:#A33A30">🗑 Limpiar Global</button>
       <button class="btn ghost sm" onclick="clearCountry()" style="border-color:#F0C7C2;color:#A33A30">🗑 Limpiar País</button>
-      <button class="btn ghost sm" onclick="clearLoad()" style="border-color:#E4C36B;color:#8A6D1B">Limpiar todo</button>
+      <button class="btn ghost sm adminOnly" onclick="clearLoad()" style="border-color:#E4C36B;color:#8A6D1B">Limpiar todo</button>
     </div>
     <div class="tools">
-      <div class="drop" id="dropGlobal" style="flex:1" onclick="fileGlobal.click()"><b>① Organigrama Global</b><br><span>Sube el Excel Global (Director y funciones globales) — genera 1 organigrama</span></div>
+      <div class="drop adminOnly" id="dropGlobal" style="flex:1" onclick="fileGlobal.click()"><b>① Organigrama Global</b><br><span>Sube el Excel Global (Director y funciones globales) — genera 1 organigrama</span></div>
       <div class="drop" id="dropCountry" style="flex:1" onclick="fileCountry.click()"><b>② Organigramas de País</b><br><span>Sube el Excel del País — genera país + departamentos + áreas</span></div>
       <div class="drop" id="dropPhotos" style="flex:1" onclick="filePhotos.click()"><b>Fotos</b><br><span>Arrastra imágenes o haz clic · <a href="#" onclick="event.stopPropagation();event.preventDefault();filePhotoDir.click()">elegir carpeta completa</a> (se emparejan por nombre)</span> <span id="photosBadge" class="badge" style="display:none"></span></div>
     </div>
@@ -194,7 +194,7 @@ main{max-width:1280px;margin:0 auto;padding:22px 20px 80px}
       <p class="sub" style="margin:6px 0 10px">Cada archivo debe estar compartido como <b>“Cualquiera con el enlace”</b>. Para <b>fotos</b>: pega un enlace por línea; si quieres emparejar con una persona concreta usa <b>Nombre Apellido = enlace</b>. Los enlaces de <b>carpeta</b> no se pueden leer desde el navegador. Para el <b>Excel</b>, Google bloquea la lectura directa: descárgalo y súbelo con los botones de arriba.</p>
       <div class="tools">
         <input class="search" id="urlInput" style="flex:1;min-width:260px" placeholder="https://drive.google.com/file/d/…/view   ·   o   Juan Pérez = https://drive.google.com/file/d/…">
-        <button class="btn ghost sm" onclick="loadUrlAs('global')">Cargar como Global</button>
+        <button class="btn ghost sm adminOnly" onclick="loadUrlAs('global')">Cargar como Global</button>
         <button class="btn ghost sm" onclick="loadUrlAs('country')">Cargar como País</button>
         <button class="btn ghost sm" onclick="loadUrlAs('photo')">Cargar foto(s)</button>
       </div>
@@ -485,7 +485,17 @@ function removeChartsByType(types,msg){ const set=new Set(types); const before=C
   if(VIEW==="admin")renderAdmin(); else renderDash(); toast(msg);
 }
 function clearGlobal(){ removeChartsByType(["global"],"Organigrama Global eliminado"); }
-function clearCountry(){ removeChartsByType(["country","department","area"],"Organigramas de País eliminados"); }
+function clearCountry(){
+  if(ACCESS&&ACCESS.scope==="pais"){ // rol país: limpia SOLO su país
+    const before=CHARTS.length;
+    CHARTS=CHARTS.filter(c=>c.type==="global" || !canSeeCountry(c.pais||""));
+    if(!CHARTS.some(c=>c.id===CHART_ID)) CHART_ID=CHARTS.length?CHARTS[0].id:null;
+    MODEL = CHART_ID ? (currentChart()||{}).model||MODEL : {persons:[],positions:[],assignments:[],classificationRules:initializeOloClassificationRules(),managerOverrides:[]};
+    saveCharts(); saveModel(); if(VIEW==="admin")renderAdmin(); if(VIEW==="dash")renderDash();
+    toast("Organigramas de "+(ACCESS.country||"tu país")+" eliminados"); return;
+  }
+  removeChartsByType(["country","department","area"],"Organigramas de País eliminados");
+}
 function chartViewObject(){ const c=currentChart(); if(!c)return null; applyOrgFunction();
   if(c.type==="global"){ ensureDirector(); attachOrphansToDirector(); }
   inheritCountry();
@@ -537,7 +547,9 @@ function generateCountrySet(rows){
   const hasMgr=p=>p.managerPositionId && A0.some(x=>x.positionId===p.managerPositionId);
   const rid=new Set(A0.filter(p=>p.positionId!==leaderId && !hasMgr(p) && childrenOf(p.positionId).length===0).map(p=>p.positionId));
   if(rid.size){ m.positions=m.positions.filter(p=>!rid.has(p.positionId)); m.assignments=m.assignments.filter(a=>!rid.has(a.positionId)); }
-  const paisNm=SELECTED_COUNTRY || ((leader&&leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):"");  // país: el seleccionado (banderas) o la columna "Pais" del Excel
+  // Rol País: SIEMPRE se fuerza su país (no puede cargar datos de otro país aunque el Excel lo diga).
+  const paisNm=(ACCESS&&ACCESS.scope==="pais"&&ACCESS.country) ? ACCESS.country
+             : (SELECTED_COUNTRY || ((leader&&leader.country&&norm(leader.country)!=="global")?titleCaseName(leader.country):""));  // país: el seleccionado (banderas) o la columna "Pais" del Excel
   // Usa la MISMA lógica que "Todos" para identificar general + departamentos + áreas
   const descs=countryChartDescriptors();
   const created=descs.map(d=>({id:uid("chart"),type:d.type,rootId:d.rootId,name:d.name,model:m,pais:paisNm}));
@@ -1493,8 +1505,8 @@ function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(
 
 /* ===================== NAVEGACIÓN DE VISTAS ===================== */
 function setView(v){
-  // Control de acceso: el Administrador de datos es solo para el perfil Admin.
-  if(v==="admin" && ACCESS.scope && !isAdmin()){ toast("Solo el perfil Administrador puede entrar al Administrador"); v="dash"; }
+  // Control de acceso: al Administrador entran Admin (completo) y rol País (recortado). Global no.
+  if(v==="admin" && ACCESS.scope && !isAdmin() && ACCESS.scope!=="pais"){ toast("Tu perfil no tiene acceso al Administrador"); v="dash"; }
   VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
   if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={year:null,country:null,month:null}; renderRepo(); }
@@ -2584,14 +2596,28 @@ function assignPersonToPosition(personId,positionId,primary){ MODEL.assignments=
 function wireDrop(id,cb){ const el=document.getElementById(id); if(!el)return; ["dragenter","dragover"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add("over");})); ["dragleave","drop"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove("over");})); el.addEventListener("drop",e=>{ const files=[...(e.dataTransfer.files||[])]; if(files.length)cb(files); }); }
 /* ===================== LOGIN CON ROLES (usuarios en Supabase: olo_usuarios) ===================== */
 function applyAccessUI(){
-  // Pestaña Administrador: solo Admin
-  const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=isAdmin()?"":"none";
+  // Pestaña Administrador: Admin (completo) y rol País (recortado). Global NO entra al Admin.
+  const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=(isAdmin()||ACCESS.scope==="pais")?"":"none";
   // Botón de diagnóstico (🔍): técnico, solo Admin
   const diagBtn=document.querySelector('button[onclick="diagCharts()"]'); if(diagBtn) diagBtn.style.display=isAdmin()?"":"none";
+  // Admin recortado para rol País: oculta todo lo marcado .adminOnly (Global, limpiar todo, demo, etc.)
+  const soloAdmin=isAdmin();
+  document.querySelectorAll(".adminOnly").forEach(elx=>{ elx.style.display=soloAdmin?"":"none"; });
+  // Rol País: fija su país como el país a cargar y muestra un aviso fijo en el Admin.
+  if(ACCESS.scope==="pais"){ SELECTED_COUNTRY=ACCESS.country; setLoadCountryFixedBadge(); }
   // Etiqueta del usuario/rol activo en el header (clic = menú: usuarios / cerrar sesión)
   let badge=document.getElementById("accessBadge");
   if(!badge){ const host=document.querySelector("header.app .app-inner"); if(host){ badge=document.createElement("span"); badge.id="accessBadge"; badge.style.cssText="margin-left:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#EEF1F0;color:#141414;cursor:pointer;white-space:nowrap"; badge.title="Sesión"; badge.onclick=()=>accessMenu(); host.appendChild(badge); } }
   if(badge){ const rol=ACCESS.scope==="admin"?"Admin":ACCESS.scope==="global"?"Global":("País: "+(ACCESS.country||"")); const fl=(ACCESS.scope==="pais")?flagSVG(ACCESS.country):""; badge.innerHTML=(fl||"👤")+" "+esc(ACCESS.nombre||ACCESS.usuario||rol)+" ("+esc(rol)+")  ⌄"; }
+}
+// Aviso fijo del país (rol País): reemplaza el selector de país a cargar por una etiqueta fija.
+function setLoadCountryFixedBadge(){
+  const pick=document.getElementById("countryPick"); if(!pick)return;
+  let fixed=document.getElementById("countryFixed");
+  if(!fixed){ fixed=document.createElement("div"); fixed.id="countryFixed"; fixed.className="tools"; fixed.style.cssText="align-items:center;gap:8px;margin-bottom:8px"; pick.parentNode.insertBefore(fixed, pick); }
+  const fl=flagSVG(ACCESS.country)||"📁";
+  fixed.innerHTML=`<span style="font-size:13px;color:#4A4E52;font-weight:700">País a cargar:</span><span class="pill" style="font-weight:700">${fl} ${esc(ACCESS.country)}</span><span class="muted" style="font-size:12px">Tu perfil solo puede cargar ${esc(ACCESS.country)}.</span>`;
+  fixed.style.display="";
 }
 function accessMenu(){
   const opts=[];
