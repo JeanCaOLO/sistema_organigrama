@@ -560,8 +560,10 @@ function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); i
   // En modo país, si hay varios países cargados, muestra SOLO los organigramas del país actual.
   let curCountry=null; if(paisOnly){ const cur=CHARTS.find(c=>c.id===CHART_ID); curCountry=cur?norm(cur.pais||""):null; }
   const inScope=c=>(!paisOnly||c.type==="global"||curCountry==null||norm(c.pais||"")===curCountry);
+  // CONTROL DE ACCESO: nunca mostrar charts fuera del alcance del perfil (global/país).
+  const accessOk=c=>(c.type==="global"?canSeeGlobal():canSeeCountry(c.pais||""));
   let html='<option value="">— Elige un organigrama —</option>';
-  groups.forEach(function(gp){ const items=CHARTS.filter(c=>c.type===gp[0]&&inScope(c)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","es")); if(!items.length)return;
+  groups.forEach(function(gp){ const items=CHARTS.filter(c=>c.type===gp[0]&&inScope(c)&&accessOk(c)).sort((a,b)=>(a.name||"").localeCompare(b.name||"","es")); if(!items.length)return;
     html+='<optgroup label="'+esc(gp[1])+'">'+items.map(c=>`<option value="${esc(c.id)}" ${CHART_ID===c.id?"selected":""}>${esc(c.name)}</option>`).join("")+'</optgroup>'; });
   el.innerHTML=html; }
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
@@ -1541,10 +1543,31 @@ function fillRootSel(list){ const rs=document.getElementById("rootSel"); if(!rs)
 function setDashRoot(id){ DASH.rootPositionId=id; DASH.page=0; renderDash(); }
 function setDashCountry(c){ DASH.country=c; DASH.page=0; renderDash(); }
 function fillCountrySel(el,val){ const cs=allowedCountries(listCountries()); el.innerHTML=cs.length?cs.map(c=>`<option value="${esc(c)}" ${norm(c)===norm(val)?"selected":""}>${esc(c)}</option>`).join(""):`<option value="">(sin países)</option>`; }
+// ¿El perfil (de país) tiene datos de SU país disponibles?
+function profileHasData(){
+  if(canSeeAllCountries()) return true;   // admin/global: siempre
+  // ¿hay charts del país permitido?
+  if(CHARTS.some(c=>c.type!=="global" && canSeeCountry(c.pais||""))) return true;
+  // ¿el modelo actual tiene posiciones del país permitido?
+  if((MODEL.positions||[]).some(p=>p.status!=="inactive" && canSeeCountry(p.country||""))) return true;
+  return false;
+}
 function renderDash(){
   updateBackBtn();
   const autoSeg=document.getElementById("autoSeg"), modeSeg=document.getElementById("modeSeg");
   const seg=["dvGlobal","dvCountry","dvDept","dvArea"];
+  // CONTROL DE ACCESO: si el CHART seleccionado no es del país del perfil, deseleccionarlo.
+  if(CHART_ID){ const cc=CHARTS.find(x=>x.id===CHART_ID); if(cc && cc.type!=="global" && !canSeeCountry(cc.pais||"")){ CHART_ID=null; } if(cc && cc.type==="global" && !canSeeGlobal()){ CHART_ID=null; } }
+  // CONTROL DE ACCESO: perfil de país sin datos de su país -> no mostrar nada de otros países.
+  if(!canSeeAllCountries() && !profileHasData()){
+    if(autoSeg)autoSeg.style.display="none"; if(modeSeg)modeSeg.style.display="none";
+    const stage=document.getElementById("stage"); if(stage) stage.innerHTML=`<div class="empty">Aún no hay organigramas cargados para <b>${esc(ACCESS.country||"tu país")}</b>.</div>`;
+    const pg=document.getElementById("pager"); if(pg)pg.innerHTML="";
+    const t=document.getElementById("stageTitle"); if(t)t.textContent="";
+    const tr=document.getElementById("tree"); if(tr)tr.innerHTML="";
+    const cr=document.getElementById("crumbs"); if(cr)cr.innerHTML="";
+    return;
+  }
   if(CHART_ID){
     const c=CHARTS.find(x=>x.id===CHART_ID); const mode=(c&&c.type==="global")?"global":"pais";
     if(autoSeg)autoSeg.style.display="none"; if(modeSeg)modeSeg.style.display=CHARTS.length?"":"none";
