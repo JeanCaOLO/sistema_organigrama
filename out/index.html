@@ -372,13 +372,14 @@ let CHARTS=[]; let CHART_ID=null; let NAME_SURNAME_FIRST=false; let SELECTED_COU
 let CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]};
 let SNAPSHOTS=[];
 
-/* ===================== CONTROL DE ACCESO POR PERFIL (Opción B) =====================
-   NOTA DE SEGURIDAD: esto es un filtro de interfaz (no es seguridad fuerte). Los datos
-   siguen en el navegador; para control real se necesita backend con RLS. Sirve para que
-   cada usuario vea en su día a día solo lo que le corresponde.
-   ACCESS.scope: 'admin' (todo + Administrador), 'global' (todo, sin Admin), 'pais' (un país). */
+/* ===================== CONTROL DE ACCESO (login con roles, usuarios en Supabase) =====================
+   NOTA DE SEGURIDAD: login simple por tabla (olo_usuarios) validado con la clave anónima;
+   es control de interfaz, NO seguridad fuerte. Para seguridad real usar Supabase Auth.
+   Roles -> ACCESS.scope: 'admin' (todo + Administrador + usuarios), 'global' (todo, sin Admin),
+   'pais' (solo ACCESS.country). */
 const K_ACCESS="olo_access_profile_v1";
-let ACCESS={scope:null,country:""};
+const SB_USERS="olo_usuarios";
+let ACCESS={scope:null,country:"",usuario:"",nombre:""};
 function isAdmin(){ return ACCESS.scope==="admin"; }
 function canSeeGlobal(){ return ACCESS.scope==="admin"||ACCESS.scope==="global"; }
 function canSeeAllCountries(){ return ACCESS.scope==="admin"||ACCESS.scope==="global"; }
@@ -386,6 +387,20 @@ function canSeeCountry(c){ if(canSeeAllCountries())return true; if(ACCESS.scope!
 function allowedCountries(list){ list=list||[]; if(canSeeAllCountries())return list.slice(); return list.filter(c=>canSeeCountry(c)); }
 function loadAccess(){ try{ const r=localStorage.getItem(K_ACCESS); if(r){ const a=JSON.parse(r); if(a&&a.scope){ ACCESS=a; } } }catch(e){} }
 function saveAccess(){ try{ localStorage.setItem(K_ACCESS, JSON.stringify(ACCESS)); }catch(e){} }
+function logout(){ ACCESS={scope:null,country:"",usuario:"",nombre:""}; try{ localStorage.removeItem(K_ACCESS); }catch(e){} showLogin(); }
+// Valida usuario/clave contra la tabla olo_usuarios en Supabase.
+async function authenticate(usuario,clave){
+  if(!USE_SB){ return {error:"Sin conexión con la base de datos (Supabase). No se puede iniciar sesión."}; }
+  try{
+    const {data,error}=await sb.from(SB_USERS).select("usuario,clave,rol,pais,nombre,activo").eq("usuario",(usuario||"").trim()).limit(1);
+    if(error) return {error:"Error consultando usuarios: "+error.message};
+    const u=(data&&data[0]);
+    if(!u) return {error:"Usuario no encontrado"};
+    if(u.activo===false) return {error:"Usuario inactivo"};
+    if(String(u.clave)!==String(clave)) return {error:"Contraseña incorrecta"};
+    return {user:{scope:u.rol,country:u.pais||"",usuario:u.usuario,nombre:u.nombre||u.usuario}};
+  }catch(e){ return {error:"No se pudo validar el inicio de sesión: "+(e&&e.message||e)}; }
+}
 
 let VIEW="admin";
 let UNDO=[], REDO=[];
@@ -2544,62 +2559,92 @@ function onJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileRea
 /* ===================== INIT ===================== */
 function assignPersonToPosition(personId,positionId,primary){ MODEL.assignments=MODEL.assignments.filter(a=>!(a.positionId===positionId&&a.isPrimaryRole&&primary)); MODEL.assignments.push({assignmentId:uid("asg"),personId,positionId,isPrimaryRole:!!primary,active:true}); const p=pos(positionId); if(p)p.status="occupied"; saveModel(); }
 function wireDrop(id,cb){ const el=document.getElementById(id); if(!el)return; ["dragenter","dragover"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add("over");})); ["dragleave","drop"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove("over");})); el.addEventListener("drop",e=>{ const files=[...(e.dataTransfer.files||[])]; if(files.length)cb(files); }); }
-/* ===================== SELECTOR DE PERFIL (control de acceso Opción B) ===================== */
-const ADMIN_PIN="olo2026";   // PIN para entrar como Admin (cámbialo aquí si lo necesitas)
-// Países que se ofrecen en el selector: los que existan en los datos + una lista base.
-function profileCountries(){
-  const base=["Costa Rica","Venezuela","Colombia","El Salvador","Guatemala"];
-  const fromData=[];
-  try{ (CHARTS||[]).forEach(c=>{ if(c.type!=="global"&&c.pais){ if(!fromData.some(x=>norm(x)===norm(c.pais))) fromData.push(c.pais); } });
-       (SNAPSHOTS||[]).forEach(s=>{ const p=repoFolderOf(s); if(p&&p!=="Global"&&p!=="Sin país"&&!fromData.some(x=>norm(x)===norm(p))) fromData.push(p); }); }catch(e){}
-  const all=fromData.slice();
-  base.forEach(b=>{ if(!all.some(x=>norm(x)===norm(b))) all.push(b); });
-  return all.sort((a,b)=>norm(a).localeCompare(norm(b),"es"));
-}
+/* ===================== LOGIN CON ROLES (usuarios en Supabase: olo_usuarios) ===================== */
 function applyAccessUI(){
   // Pestaña Administrador: solo Admin
   const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=isAdmin()?"":"none";
   // Botón de diagnóstico (🔍): técnico, solo Admin
   const diagBtn=document.querySelector('button[onclick="diagCharts()"]'); if(diagBtn) diagBtn.style.display=isAdmin()?"":"none";
-  // Etiqueta del perfil activo en el header
+  // Etiqueta del usuario/rol activo en el header (clic = menú: usuarios / cerrar sesión)
   let badge=document.getElementById("accessBadge");
-  if(!badge){ const host=document.querySelector("header.app .app-inner"); if(host){ badge=document.createElement("span"); badge.id="accessBadge"; badge.style.cssText="margin-left:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#EEF1F0;color:#141414;cursor:pointer;white-space:nowrap"; badge.title="Cambiar de perfil"; badge.onclick=()=>showProfilePicker(true); host.appendChild(badge); } }
-  if(badge){ const lab=ACCESS.scope==="admin"?"Admin":ACCESS.scope==="global"?"Global (todos)":("País: "+(ACCESS.country||"")); const fl=(ACCESS.scope==="pais")?flagSVG(ACCESS.country):""; badge.innerHTML=(fl||"👤")+" "+esc(lab)+"  ⌄"; }
+  if(!badge){ const host=document.querySelector("header.app .app-inner"); if(host){ badge=document.createElement("span"); badge.id="accessBadge"; badge.style.cssText="margin-left:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#EEF1F0;color:#141414;cursor:pointer;white-space:nowrap"; badge.title="Sesión"; badge.onclick=()=>accessMenu(); host.appendChild(badge); } }
+  if(badge){ const rol=ACCESS.scope==="admin"?"Admin":ACCESS.scope==="global"?"Global":("País: "+(ACCESS.country||"")); const fl=(ACCESS.scope==="pais")?flagSVG(ACCESS.country):""; badge.innerHTML=(fl||"👤")+" "+esc(ACCESS.nombre||ACCESS.usuario||rol)+" ("+esc(rol)+")  ⌄"; }
 }
-function setProfile(scope,country){
-  ACCESS={scope:scope,country:country||""};
-  saveAccess();
+function accessMenu(){
+  const opts=[];
+  if(isAdmin()) opts.push(`<button class="btn ghost" onclick="this.closest('.overlay').remove();manageUsers()">👥 Gestionar usuarios</button>`);
+  opts.push(`<button class="btn primary" onclick="this.closest('.overlay').remove();logout()">⎋ Cerrar sesión</button>`);
+  document.getElementById("profileHost").innerHTML=`<div class="overlay" onclick="if(event.target===this)this.remove()"><div class="modal" style="max-width:420px"><h3 style="margin:0 0 4px">Sesión</h3><p class="sub" style="margin:0 0 14px">${esc(ACCESS.nombre||ACCESS.usuario||"")} · ${esc(ACCESS.scope==="pais"?("País "+ACCESS.country):ACCESS.scope)}</p><div style="display:flex;gap:8px;flex-wrap:wrap">${opts.join("")}</div></div></div>`;
+}
+function applyAccessAfterLogin(){
   if(ACCESS.scope==="pais"){ SELECTED_COUNTRY=ACCESS.country; }
-  const host=document.getElementById("profileHost"); if(host)host.innerHTML="";
   applyAccessUI();
-  // Lleva a una vista permitida
-  if(VIEW==="admin" && !isAdmin()) setView(CHARTS.length?"dash":"repo"); else setView(VIEW||"dash");
-  renderDash();
+  const start=isAdmin()?(CHARTS.length?"dash":"admin"):"dash";
+  setView(start); renderDash();
 }
-function chooseProfile(scope,country){
-  if(scope==="admin"){
-    const pin=prompt("PIN de administrador:",""); if(pin===null)return;
-    if(pin!==ADMIN_PIN){ toast("PIN incorrecto"); return; }
-  }
-  setProfile(scope,country);
+async function doLogin(){
+  const u=document.getElementById("loginUser"), p=document.getElementById("loginPass"), msg=document.getElementById("loginMsg");
+  const btn=document.getElementById("loginBtn");
+  if(msg)msg.textContent="Validando…"; if(btn)btn.disabled=true;
+  const res=await authenticate(u?u.value:"", p?p.value:"");
+  if(btn)btn.disabled=false;
+  if(res.error){ if(msg){ msg.textContent=res.error; msg.style.color="#C0392B"; } return; }
+  ACCESS={scope:res.user.scope,country:res.user.country||"",usuario:res.user.usuario,nombre:res.user.nombre||res.user.usuario};
+  saveAccess();
+  const host=document.getElementById("profileHost"); if(host)host.innerHTML="";
+  applyAccessAfterLogin();
 }
-function showProfilePicker(allowClose){
-  const paises=profileCountries();
-  const card=(onclick,icon,titulo,sub)=>`<div class="repocard" style="cursor:pointer" onclick="${onclick}"><div class="repoicon">${icon}</div><div class="reponame">${esc(titulo)}</div><div class="repomuted">${esc(sub||"")}</div></div>`;
-  let cards="";
-  cards+=card("chooseProfile('global')","🌎","Global","Ve todos los países y el organigrama Global");
-  paises.forEach(p=>{ const fl=flagSVG(p)||"📁"; cards+=card("chooseProfile('pais','"+esc(p).replace(/'/g,"\\'")+"')",fl,p,"Ve solo "+esc(p)); });
-  cards+=card("chooseProfile('admin')","🛠","Administrador","Acceso total y gestión de datos (requiere PIN)");
-  const closeBtn=allowClose?`<button class="btn ghost" onclick="document.getElementById('profileHost').innerHTML=''">Cancelar</button>`:"";
+function showLogin(){
   document.getElementById("profileHost").innerHTML=`
     <div class="overlay" style="z-index:9999">
-      <div class="modal" style="max-width:760px">
-        <h3 style="margin:0 0 4px">¿Con qué perfil quieres entrar?</h3>
-        <p class="sub" style="margin:0 0 14px">Elige tu alcance. Verás solo los organigramas de tu perfil en el Dashboard, el Repositorio y las descargas.</p>
-        <div class="repogrid">${cards}</div>
-        <div class="modal-foot">${closeBtn}</div>
+      <div class="modal" style="max-width:420px">
+        <h3 style="margin:0 0 4px">Iniciar sesión</h3>
+        <p class="sub" style="margin:0 0 14px">Ingresa con tu usuario. Verás solo los organigramas que tu rol permite.</p>
+        <div class="fld"><label>Usuario</label><input class="search" id="loginUser" style="width:100%" autocomplete="username" placeholder="usuario"></div>
+        <div class="fld" style="margin-top:8px"><label>Contraseña</label><input class="search" id="loginPass" type="password" style="width:100%" autocomplete="current-password" placeholder="••••••" onkeydown="if(event.key==='Enter')doLogin()"></div>
+        <div id="loginMsg" class="muted" style="margin-top:10px;font-size:12px;min-height:16px"></div>
+        <div class="modal-foot"><button class="btn primary" id="loginBtn" onclick="doLogin()">Entrar</button></div>
       </div>
     </div>`;
+  setTimeout(()=>{ const u=document.getElementById("loginUser"); if(u)u.focus(); },50);
+}
+/* ---- Gestión de usuarios (solo Admin) ---- */
+async function manageUsers(){
+  if(!isAdmin()){ toast("Solo Admin"); return; }
+  if(!USE_SB){ toast("Sin conexión con Supabase"); return; }
+  const host=document.getElementById("profileHost");
+  host.innerHTML=`<div class="overlay"><div class="modal" style="max-width:760px"><h3>Usuarios</h3><div id="usersBody" class="muted">Cargando…</div></div></div>`;
+  let data=[],err=null;
+  try{ const r=await sb.from(SB_USERS).select("usuario,rol,pais,nombre,activo").order("rol"); if(r.error)err=r.error.message; else data=r.data||[]; }catch(e){ err=e.message||String(e); }
+  const body=document.getElementById("usersBody"); if(!body)return;
+  if(err){ body.innerHTML=`<div class="callout warn">No se pudieron cargar los usuarios: ${esc(err)}</div>`; return; }
+  const rows=data.map(u=>`<tr><td><b>${esc(u.usuario)}</b>${u.nombre?`<br><span class="muted" style="font-size:11px">${esc(u.nombre)}</span>`:""}</td><td>${esc(u.rol)}</td><td>${esc(u.pais||"")}</td><td>${u.activo===false?"inactivo":"activo"}</td><td><button class="iconbtn del" title="Eliminar" onclick="deleteUser('${esc(u.usuario).replace(/'/g,"\\'")}')">🗑</button></td></tr>`).join("");
+  body.innerHTML=`
+    <div class="tblscroll" style="max-height:300px"><table class="grid"><thead><tr><th>Usuario</th><th>Rol</th><th>País</th><th>Estado</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="muted" style="padding:16px">Sin usuarios</td></tr>'}</tbody></table></div>
+    <div class="grp" style="margin-top:12px">Nuevo usuario</div>
+    <div class="row"><label>Usuario</label><input class="search" id="nu_user" placeholder="usuario"></div>
+    <div class="row"><label>Contraseña</label><input class="search" id="nu_pass" placeholder="contraseña"></div>
+    <div class="row"><label>Rol</label><select class="search" id="nu_rol" onchange="document.getElementById('nu_paiswrap').style.display=this.value==='pais'?'':'none'"><option value="pais">País (solo un país)</option><option value="global">Global (todos los países)</option><option value="admin">Admin (todo + gestión)</option></select></div>
+    <div class="row" id="nu_paiswrap"><label>País</label><input class="search" id="nu_pais" placeholder="Costa Rica"></div>
+    <div class="row"><label>Nombre</label><input class="search" id="nu_nombre" placeholder="Nombre para mostrar (opcional)"></div>
+    <div class="modal-foot"><button class="btn ghost" onclick="this.closest('.overlay').remove()">Cerrar</button><button class="btn primary" onclick="createUser()">Crear usuario</button></div>`;
+}
+async function createUser(){
+  const usuario=(document.getElementById("nu_user").value||"").trim();
+  const clave=(document.getElementById("nu_pass").value||"").trim();
+  const rol=document.getElementById("nu_rol").value;
+  const pais=rol==="pais"?(document.getElementById("nu_pais").value||"").trim():"";
+  const nombre=(document.getElementById("nu_nombre").value||"").trim();
+  if(!usuario||!clave){ toast("Usuario y contraseña son obligatorios"); return; }
+  if(rol==="pais"&&!pais){ toast("Indica el país para el rol País"); return; }
+  try{ const {error}=await sb.from(SB_USERS).insert({usuario,clave,rol,pais,nombre,activo:true}); if(error){ toast("No se pudo crear: "+error.message); return; } toast("Usuario creado"); manageUsers(); }
+  catch(e){ toast("Error: "+(e.message||e)); }
+}
+async function deleteUser(usuario){
+  if(usuario===ACCESS.usuario){ toast("No puedes eliminar tu propio usuario en sesión"); return; }
+  if(!confirm("¿Eliminar al usuario '"+usuario+"'?"))return;
+  try{ const {error}=await sb.from(SB_USERS).delete().eq("usuario",usuario); if(error){ toast("No se pudo eliminar: "+error.message); return; } toast("Usuario eliminado"); manageUsers(); }
+  catch(e){ toast("Error: "+(e.message||e)); }
 }
 async function init(){
   // 1) Traer la copia central desde Supabase a la caché local
@@ -2613,9 +2658,9 @@ async function init(){
   wireDrop("dropCountry",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
   wireDrop("dropPhotos",files=>handlePhotoFiles(files.filter(f=>/^image\//.test(f.type))));
   applyAccessUI();
-  // Control de acceso: si no hay perfil elegido, pedirlo antes de entrar.
-  if(!ACCESS.scope){ showProfilePicker(false); setView("dash"); }
-  else { const start=isAdmin()?(CHARTS.length?"dash":"admin"):"dash"; setView(start); }
+  // Control de acceso: si no hay sesión, pedir login antes de entrar.
+  if(!ACCESS.scope){ setView("dash"); showLogin(); }
+  else { applyAccessAfterLogin(); }
 }
 if(typeof document!=="undefined"){ if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init); else init(); }
 
