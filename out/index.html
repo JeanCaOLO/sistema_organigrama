@@ -1505,8 +1505,8 @@ function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(
 
 /* ===================== NAVEGACIÓN DE VISTAS ===================== */
 function setView(v){
-  // Control de acceso: al Administrador entran Admin (completo) y rol País (recortado). Global no.
-  if(v==="admin" && ACCESS.scope && !isAdmin() && ACCESS.scope!=="pais"){ toast("Tu perfil no tiene acceso al Administrador"); v="dash"; }
+  // Control de acceso: al Administrador entran Admin y Global (completo) y rol País (recortado).
+  if(v==="admin" && ACCESS.scope && !isAdmin() && !canSeeGlobal() && ACCESS.scope!=="pais"){ toast("Tu perfil no tiene acceso al Administrador"); v="dash"; }
   VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
   if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={year:null,country:null,month:null}; renderRepo(); }
@@ -2411,6 +2411,7 @@ function loadUrlAs(kind){
   const hint=document.getElementById("urlHint");
   const say=t=>{ if(hint)hint.textContent=t; };
   if(!raw){ toast("Pega un enlace"); return; }
+  if(kind==="country" && !requireLoadCountry()) return;
 
   if(kind==="photo"){
     if(isDriveFolder(raw)){
@@ -2466,7 +2467,14 @@ function loadUrlAs(kind){
 // Botón 1: genera SOLO el organigrama Global (reemplaza el Global anterior; conserva los de país)
 function onGlobalFile(e){ const f=e.target.files[0]; if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Global no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); toast("Organigrama Global generado"); }, "global"); e.target.value=""; }
 // Botón 2: genera los organigramas de País (país + departamentos + áreas; reemplaza los de país; conserva el Global)
-function onCountryFile(e){ const f=e.target.files[0]; if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); }, "pais"); e.target.value=""; }
+// Para Admin/Global: exige elegir el país (banderas) antes de subir el Excel de país.
+// Para rol País: su país ya está fijado por el perfil.
+function requireLoadCountry(){
+  if(ACCESS&&ACCESS.scope==="pais") return true;
+  if(!SELECTED_COUNTRY){ toast("Primero elige el país (banderas) al que se asociará la información"); return false; }
+  return true;
+}
+function onCountryFile(e){ const f=e.target.files[0]; if(!requireLoadCountry()){ e.target.value=""; return; } if(f) loadExcel(f, rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); loadPhotosFromRows(rows); }, "pais"); e.target.value=""; }
 
 // Descarga las fotos que vengan como ENLACE en la columna "Foto" del Excel (Google Drive u otra URL) y las asigna por persona
 /* Carga las fotos que vengan como ENLACE en la columna "Foto" del Excel.
@@ -2596,15 +2604,16 @@ function assignPersonToPosition(personId,positionId,primary){ MODEL.assignments=
 function wireDrop(id,cb){ const el=document.getElementById(id); if(!el)return; ["dragenter","dragover"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.add("over");})); ["dragleave","drop"].forEach(ev=>el.addEventListener(ev,e=>{e.preventDefault();el.classList.remove("over");})); el.addEventListener("drop",e=>{ const files=[...(e.dataTransfer.files||[])]; if(files.length)cb(files); }); }
 /* ===================== LOGIN CON ROLES (usuarios en Supabase: olo_usuarios) ===================== */
 function applyAccessUI(){
-  // Pestaña Administrador: Admin (completo) y rol País (recortado). Global NO entra al Admin.
-  const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=(isAdmin()||ACCESS.scope==="pais")?"":"none";
-  // Botón de diagnóstico (🔍): técnico, solo Admin
-  const diagBtn=document.querySelector('button[onclick="diagCharts()"]'); if(diagBtn) diagBtn.style.display=isAdmin()?"":"none";
-  // Admin recortado para rol País: oculta todo lo marcado .adminOnly (Global, limpiar todo, demo, etc.)
-  const soloAdmin=isAdmin();
-  document.querySelectorAll(".adminOnly").forEach(elx=>{ elx.style.display=soloAdmin?"":"none"; });
+  // Pestaña Administrador: Admin y Global (completo), y rol País (recortado).
+  const tabAdmin=document.getElementById("tabAdmin"); if(tabAdmin) tabAdmin.style.display=(isAdmin()||canSeeGlobal()||ACCESS.scope==="pais")?"":"none";
+  // Botón de diagnóstico (🔍): técnico, Admin y Global
+  const diagBtn=document.querySelector('button[onclick="diagCharts()"]'); if(diagBtn) diagBtn.style.display=canSeeGlobal()?"":"none";
+  // Admin COMPLETO para Admin y Global; recortado para rol País (oculta lo marcado .adminOnly).
+  const vistaCompleta=canSeeGlobal();   // admin o global
+  document.querySelectorAll(".adminOnly").forEach(elx=>{ elx.style.display=vistaCompleta?"":"none"; });
   // Rol País: fija su país como el país a cargar y muestra un aviso fijo en el Admin.
   if(ACCESS.scope==="pais"){ SELECTED_COUNTRY=ACCESS.country; setLoadCountryFixedBadge(); }
+  else { const cf=document.getElementById("countryFixed"); if(cf) cf.style.display="none"; }
   // Etiqueta del usuario/rol activo en el header (clic = menú: usuarios / cerrar sesión)
   let badge=document.getElementById("accessBadge");
   if(!badge){ const host=document.querySelector("header.app .app-inner"); if(host){ badge=document.createElement("span"); badge.id="accessBadge"; badge.style.cssText="margin-left:10px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:#EEF1F0;color:#141414;cursor:pointer;white-space:nowrap"; badge.title="Sesión"; badge.onclick=()=>accessMenu(); host.appendChild(badge); } }
@@ -2704,7 +2713,7 @@ async function init(){
   if(USE_SB && !traido) sbPushAll();
   if(typeof window!=="undefined"&&window.__OLO_LOGO__){ const b=document.getElementById("brandLogo"); if(b)b.src=window.__OLO_LOGO__; }
   wireDrop("dropGlobal",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Global no tiene datos");return;} CHARTS=CHARTS.filter(c=>c.type!=="global"); addChartFromRows("global",rows); if(Object.keys(PHOTOS).length) matchPhotos(); toast("Organigrama Global generado"); }, "global"); });
-  wireDrop("dropCountry",files=>{ if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
+  wireDrop("dropCountry",files=>{ if(!requireLoadCountry())return; if(files[0]) loadExcel(files[0], rows=>{ if(!rows.length){toast("La hoja Pais no tiene datos");return;} generateCountrySet(rows); if(Object.keys(PHOTOS).length) matchPhotos(); }, "pais"); });
   wireDrop("dropPhotos",files=>handlePhotoFiles(files.filter(f=>/^image\//.test(f.type))));
   applyAccessUI();
   // Control de acceso: si no hay sesión, pedir login antes de entrar.
