@@ -414,6 +414,8 @@ function esc(s){ return (s==null?"":s).toString().replace(/&/g,"&amp;").replace(
 function slug(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,""); }
 function compact(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,""); }
 function norm(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
+// Nombre normalizado para EMPAREJAR jefe-subordinado: quita tildes, comas, puntos y colapsa espacios.
+function nameKey(s){ return norm(s).replace(/[,\.;]/g," ").replace(/\s+/g," ").trim(); }
 function sentence(s){ s=(s||"").toString().trim(); if(!s)return""; s=s.toLowerCase(); return s.charAt(0).toUpperCase()+s.slice(1); }
 // Nombre propio: cada palabra con mayúscula inicial y resto en minúscula (aunque venga TODO EN MAYÚSCULAS). Partículas en minúscula.
 function shortName(s){ if(!s) return s; s=s.toString().trim().replace(/\s+/g," "); if(s[0]==="(") return s; const p=s.split(" ").filter(Boolean);
@@ -579,6 +581,10 @@ function generateCountrySet(rows){
   const created=descs.map(d=>({id:uid("chart"),type:d.type,rootId:d.rootId,name:d.name,model:m,pais:paisNm}));
   const nDept=descs.filter(d=>d.type==="department").length, nArea=descs.filter(d=>d.type==="area").length;
 
+  // Diagnóstico de jerarquía: cuántas filas traían "Jefe Inmediato" pero NO se pudo enlazar.
+  const totalFilas=(rows||[]).filter(r=>r&&(r.name||r.role)).length;
+  const conNombreJefe=(rows||[]).filter(r=>r&&(r.managerName||"").toString().trim()).length;
+  const sinEnlace=m.positions.filter(p=>!p.managerPositionId).length-1;   // -1 por el líder (que no tiene jefe)
   MODEL=sv;
   if(!created.length){ toast("No se reconoció una estructura de país en el archivo"); return; }
   created.forEach(c=>{ c.pais=paisNm; });
@@ -588,7 +594,18 @@ function generateCountrySet(rows){
   CHARTS=CHARTS.filter(ch=>ch.type==="global" || !sameCountry(ch));
   CHARTS.push.apply(CHARTS,created); CHART_ID=created[0].id; MODEL=m; saveCharts(); saveModel();
   const totPaises=new Set(CHARTS.filter(c=>c.type!=="global").map(c=>norm(c.pais||"(sin país)"))).size;
-  setView("dash"); toast("Generados: 1 general, "+nDept+" departamentos, "+nArea+" áreas · "+totPaises+" país(es) cargado(s)");
+  setView("dash");
+  if(nDept===0 && nArea===0){
+    // Solo se generó el general: casi siempre es porque la columna "Jefe Inmediato" no enlaza.
+    const detalle = conNombreJefe===0
+      ? "El Excel no trae la columna 'Jefe Inmediato' llena, así que no hay jerarquía."
+      : (sinEnlace>0 ? (sinEnlace+" fila(s) tienen 'Jefe Inmediato' que NO coincide con ningún 'Nombre' exacto.")
+                     : "Revisa que los nombres de 'Jefe Inmediato' coincidan EXACTO con la columna 'Nombre'.");
+    alert("Solo se generó el Organigrama General.\n\n"+detalle+"\n\nSolución: en el Excel, cada persona debe tener en 'Jefe Inmediato' el 'Nombre' EXACTO de su jefe (misma escritura que en la fila del jefe).");
+    toast("Solo 1 organigrama: revisa la columna 'Jefe Inmediato'");
+  } else {
+    toast("Generados: 1 general, "+nDept+" departamentos, "+nArea+" áreas · "+totPaises+" país(es) cargado(s)");
+  }
   return paisNm;
 }
 function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); if(!el)return; if(!CHARTS.length){ el.style.display="none"; return; } el.style.display="";
@@ -2335,20 +2352,75 @@ function assembleModel(rows, prevOverrides){
     byPid[key]=per;
     M.assignments.push({assignmentId:uid("asg"),personId:per.personId,positionId:p.positionId,isPrimaryRole:p._primary,active:true});
   });
+  // Pasada EXACTA (tolerante a comas, puntos, tildes y espacios dobles).
   M.positions.forEach(p=>{ if(p.managerPositionId&&M.positions.some(x=>x.positionId===p.managerPositionId))return;
-    if(p._managerName){ const cands=M.positions.filter(x=>{ const occ=M.assignments.find(a=>a.positionId===x.positionId); const per=occ?M.persons.find(pp=>pp.personId===occ.personId):null; return (per&&norm(per.name)===norm(p._managerName)) || norm(x.positionId)===norm(p._managerName) || norm(x.role)===norm(p._managerName); });
+    if(p._managerName){ const mn=nameKey(p._managerName); if(!mn)return; const cands=M.positions.filter(x=>{ if(x.positionId===p.positionId)return false; const occ=M.assignments.find(a=>a.positionId===x.positionId); const per=occ?M.persons.find(pp=>pp.personId===occ.personId):null; return (per&&nameKey(per.name)===mn) || (nameKey(x.positionId)===mn) || (x.role&&nameKey(x.role)===mn); });
       if(cands.length>=1)p.managerPositionId=cands[0].positionId; }
   });
   // Pasada TOLERANTE: por tokens del nombre (maneja "CRUZ GUTIERREZ CARLOS" vs "CRUZ GUTIERREZ CARLOS EDUARDO"); solo si hay un único mejor candidato claro
   M.positions.forEach(p=>{ if(p.managerPositionId&&M.positions.some(x=>x.positionId===p.managerPositionId))return;
-    if(!p._managerName)return; const mtok=norm(p._managerName).split(/\s+/).filter(t=>t.length>2); if(mtok.length<2)return;
+    if(!p._managerName)return; const mtok=nameKey(p._managerName).split(/\s+/).filter(t=>t.length>2); if(mtok.length<2)return;
     let best=null,bestScore=0,secondScore=0,bestLen=0;
     M.positions.forEach(x=>{ if(x.positionId===p.positionId)return; const occ=M.assignments.find(a=>a.positionId===x.positionId); const per=occ?M.persons.find(pp=>pp.personId===occ.personId):null; if(!per)return;
-      const ntok=norm(per.name).split(/\s+/).filter(t=>t.length>2); const shared=mtok.filter(t=>ntok.includes(t)).length;
+      const ntok=nameKey(per.name).split(/\s+/).filter(t=>t.length>2); const shared=mtok.filter(t=>ntok.includes(t)).length;
       if(shared>bestScore){ secondScore=bestScore; bestScore=shared; best=x; bestLen=ntok.length; } else if(shared>secondScore){ secondScore=shared; } });
-    // Solo enlaza si TODOS los tokens del nombre más corto coinciden (el nombre del jefe es subconjunto del nombre completo), y es único
-    if(best && bestScore>=2 && bestScore===Math.min(mtok.length,bestLen) && bestScore>secondScore) p.managerPositionId=best.positionId;
+    // Enlaza SOLO si TODOS los tokens del jefe coinciden (jefe ⊆ candidato) y es único.
+    if(best && bestScore>=2 && bestScore===mtok.length && bestScore>secondScore) p.managerPositionId=best.positionId;
   });
+
+  // CREAR JEFES FALTANTES: si una fila referencia un "Jefe Inmediato" que NO existe como fila,
+  // creamos automáticamente esa posición (nodo) con el nombre del jefe, para que el organigrama
+  // se arme igual. El cargo del jefe se deduce del departamento/área de sus subordinados.
+  (function createMissingManagers(){
+    const existe=mn=>M.positions.some(x=>{ const occ=M.assignments.find(a=>a.positionId===x.positionId); const per=occ?M.persons.find(pp=>pp.personId===occ.personId):null; return (per&&nameKey(per.name)===mn)||nameKey(x.positionId)===mn||nameKey(x.role)===mn; });
+    const nuevos={};   // normName -> positionId creado
+    let guard=0;
+    // Puede haber varios niveles de jefes faltantes; iteramos hasta estabilizar.
+    let added=true;
+    while(added && guard++<8){
+      added=false;
+      M.positions.slice().forEach(p=>{
+        if(p.managerPositionId && M.positions.some(x=>x.positionId===p.managerPositionId)) return;
+        const mnRaw=(p._managerName||"").toString().trim(); if(!mnRaw) return;
+        const mn=nameKey(mnRaw); if(!mn) return;
+        if(existe(mn)){ // ya existe: enlazar
+          const jefe=M.positions.find(x=>{ const occ=M.assignments.find(a=>a.positionId===x.positionId); const per=occ?M.persons.find(pp=>pp.personId===occ.personId):null; return (per&&nameKey(per.name)===mn)||nameKey(x.positionId)===mn||nameKey(x.role)===mn; });
+          if(jefe){ p.managerPositionId=jefe.positionId; return; }
+        }
+        let jefeId=nuevos[mn];
+        if(!jefeId){
+          // Cargo deducido: usa el Área del subordinado como unidad del jefe (ej. "Jefe de Almacen"),
+          // o el Departamento, o un genérico.
+          const unidad=(p.area||p.department||"").toString().trim();
+          const cargoJefe=unidad?("Responsable de "+titleCaseName(unidad)):"Responsable";
+          const pid=uid("pos"); const perId=uid("per");
+          M.persons.push({personId:perId,name:mnRaw,photo:"",active:true});
+          M.positions.push({positionId:pid,role:cargoJefe,department:p.department||"",area:"",scope:p.scope||"country",country:p.country||"",businessUnit:"",managerPositionId:null,_managerName:"",functionType:"unclassified",functionTypeExcel:"",orgFunction:"",leadType:"none",visualOrder:"",originalImportOrder:9000+Object.keys(nuevos).length,orgLevel:0,isDirector:false,isCountryManager:false,status:"occupied",showInBusinessUnitColumn:false,levelStepLegacy:"",ageLegacy:"",tenureLegacy:"",birthDate:"",hireDate:"",classificationSource:"",classificationConfidence:"",classificationMatchedRule:"",classificationExplanation:"",requiresClassificationReview:false,_synthetic:true});
+          M.assignments.push({assignmentId:uid("asg"),personId:perId,positionId:pid,isPrimaryRole:true,active:true});
+          nuevos[mn]=pid; jefeId=pid; added=true;
+        }
+        p.managerPositionId=jefeId;
+      });
+    }
+    // AGRUPAR raíces huérfanas: si quedan VARIAS posiciones sin jefe que tienen equipo
+    // (p. ej. varios jefes de área sin un gerente arriba), creamos un nodo raíz del país
+    // ("Gerencia General") y colgamos de él esas raíces, para que el organigrama tenga una cúpula.
+    const kids=pid=>M.positions.filter(x=>x.managerPositionId===pid);
+    const roots=M.positions.filter(p=>!p.managerPositionId || !M.positions.some(x=>x.positionId===p.managerPositionId));
+    const rootsConEquipo=roots.filter(p=>kids(p.positionId).length>0);
+    if(rootsConEquipo.length>1){
+      // ¿ya existe una raíz "gerente de operaciones"? úsala; si no, crea una.
+      let lider=rootsConEquipo.find(p=>/gerente de operacion/.test(norm(p.role)));
+      if(!lider){
+        const pid=uid("pos"); const perId=uid("per"); const pais=(rootsConEquipo[0].country||"");
+        M.persons.push({personId:perId,name:"Gerencia General"+(pais?" "+pais:""),photo:"",active:true});
+        lider={positionId:pid,role:"Gerente de Operaciones",department:"Operaciones",area:"",scope:"country",country:pais,businessUnit:"",managerPositionId:null,_managerName:"",functionType:"unclassified",functionTypeExcel:"",orgFunction:"",leadType:"none",visualOrder:"",originalImportOrder:8000,orgLevel:0,isDirector:false,isCountryManager:false,status:"occupied",showInBusinessUnitColumn:false,levelStepLegacy:"",ageLegacy:"",tenureLegacy:"",birthDate:"",hireDate:"",classificationSource:"",classificationConfidence:"",classificationMatchedRule:"",classificationExplanation:"",requiresClassificationReview:false,_synthetic:true};
+        M.positions.push(lider);
+        M.assignments.push({assignmentId:uid("asg"),personId:perId,positionId:lider.positionId,isPrimaryRole:true,active:true});
+      }
+      rootsConEquipo.forEach(p=>{ if(p.positionId!==lider.positionId) p.managerPositionId=lider.positionId; });
+    }
+  })();
 
   M.positions.forEach(p=>{ delete p._managerName; delete p._pid; delete p._name; delete p._primary; delete p._vacant; delete p._photo; });
   return M;
