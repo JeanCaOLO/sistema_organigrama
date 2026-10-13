@@ -458,7 +458,28 @@ function titleCaseName(s){ if(!s)return s; const small=new Set(["de","del","la",
 let toastT; function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2600); }
 
 function saveModel(){ try{ localStorage.setItem(K_MODEL, JSON.stringify(MODEL)); }catch(e){} sbPush(K_MODEL, MODEL); if(CHART_ID)saveCharts(); }
-function saveCharts(){ const d={charts:CHARTS,active:CHART_ID}; try{ localStorage.setItem(K_CHARTS, JSON.stringify(d)); }catch(e){} sbPush(K_CHARTS, d); }
+// Serializa CHARTS SIN fotos base64 embebidas: extrae cada foto a SNAP_PHOTOS (persistente) y
+// deja en la persona solo "photoKey". Así el JSON de CHARTS es pequeño y NO falla al guardar
+// (antes, con fotos, podía reventar localStorage/Supabase y perder países al recargar).
+function chartsForSave(){
+  let changed=false;
+  const slim=CHARTS.map(c=>{
+    const m=c.model||{};
+    const persons=(m.persons||[]).map(per=>{
+      if(per && per.photo && /^data:/.test(per.photo)){ const k=snapPhotoKey(per.photo); if(!SNAP_PHOTOS[k]){ SNAP_PHOTOS[k]=per.photo; changed=true; } const {photo,...rest}=per; return Object.assign(rest,{photoKey:k}); }
+      return per;
+    });
+    const model=Object.assign({},m,{persons});
+    return Object.assign({},c,{model});
+  });
+  if(changed) saveSnapPhotos();
+  return {charts:slim,active:CHART_ID};
+}
+// Rehidrata las fotos (photoKey -> base64) en los modelos de CHARTS tras cargar.
+function rehydrateChartsPhotos(){
+  CHARTS.forEach(c=>{ const m=c.model||{}; (m.persons||[]).forEach(per=>{ if(per && !per.photo && per.photoKey && SNAP_PHOTOS[per.photoKey]){ per.photo=SNAP_PHOTOS[per.photoKey]; } }); });
+}
+function saveCharts(){ const d=chartsForSave(); let lsOk=true; try{ localStorage.setItem(K_CHARTS, JSON.stringify(d)); }catch(e){ lsOk=false; console.warn("localStorage lleno para charts; se guarda en la nube.",e); } sbPush(K_CHARTS, d); if(!lsOk && !USE_SB) toast("Aviso: almacenamiento local lleno"); }
 function loadCharts(){ try{ const d=JSON.parse(localStorage.getItem(K_CHARTS)||"null"); if(d&&Array.isArray(d.charts)){ CHARTS=d.charts; CHART_ID=d.active||null; } }catch(e){ CHARTS=[]; CHART_ID=null; } }
 function chartTypeLabel(t){ return {global:"Organigrama Global",country:"Organigrama de País",department:"Organigrama de Departamento",area:"Organigrama de Área"}[t]||"Organigrama"; }
 // Construye un organigrama independiente a partir de un archivo (una vista por archivo)
@@ -515,19 +536,22 @@ function chartViewObject(){ const c=currentChart(); if(!c)return null; applyOrgF
 function countryChartDescriptors(){
   const tcc=titleCaseCargo;
   const isGer=p=>/^gerente\b/.test(norm(p.role));
-  const isCoord=p=>{ const c=norm(p.role); return /coordinador|supervisor|encargad|lider/.test(c) || /^jefe\b/.test(c); };
   const A=activePositions();
+  // LÍDER del país: Gerente de Operaciones, o el gerente raíz, o la raíz con más equipo.
   const leader = A.find(p=>/^gerente de operacion/.test(norm(p.role)))
               || A.find(p=>isGer(p) && (!p.managerPositionId || !A.some(x=>x.positionId===p.managerPositionId)))
               || chartRoot() || A[0];
   const leaderId=leader?leader.positionId:null;
   const out=[];
   if(leader){ out.push({type:"country",rootId:leader.positionId,name:"Organigrama General"}); }
+  // Detección ESTRUCTURAL (independiente del nombre del cargo):
+  //  • Departamentos = reportes DIRECTOS del líder que tengan equipo.
+  //  • Áreas = cualquier OTRA posición (más abajo) que tenga equipo.
   const deptIds={};
   A.forEach(p=>{ if(p.positionId===leaderId) return; if(!childrenOf(p.positionId).length) return;
-    if(isGer(p) || p.managerPositionId===leaderId){ out.push({type:"department",rootId:p.positionId,name:unitName(p.role)}); deptIds[p.positionId]=1; } });
+    if(p.managerPositionId===leaderId){ out.push({type:"department",rootId:p.positionId,name:unitName(p.role)||tcc(sentence(p.role))}); deptIds[p.positionId]=1; } });
   A.forEach(p=>{ if(p.positionId===leaderId || deptIds[p.positionId]) return; if(!childrenOf(p.positionId).length) return;
-    if(isCoord(p)){ out.push({type:"area",rootId:p.positionId,name:tcc(p.area||unitName(p.role))}); } });
+    out.push({type:"area",rootId:p.positionId,name:tcc(p.area||unitName(p.role)||sentence(p.role))}); });
   return out;
 }
 // Sube UN archivo de país y genera, en un paso: el organigrama del país + el de cada departamento + el de cada área.
@@ -1154,6 +1178,7 @@ function load(){
   try{ const c=localStorage.getItem(K_CONF); if(c)CONFIDENTIAL=JSON.parse(c); }catch(e){}
   try{ const s=localStorage.getItem(K_SNAP); if(s)SNAPSHOTS=JSON.parse(s); }catch(e){}
   loadSnapPhotos();
+  rehydrateChartsPhotos();   // repone las fotos (photoKey -> base64) en los modelos de CHARTS
   seedConfidentialDemo();
 }
 function loadDemo(){ localStorage.removeItem(K_MODEL); localStorage.removeItem(K_CONF); localStorage.removeItem(K_SNAP); MODEL={persons:[],positions:[],assignments:[],classificationRules:[],managerOverrides:[]}; CONFIDENTIAL={permanenceEvaluations:[],potentialEvaluations:[],successionCandidates:[],riskOverrides:[],audit:[]}; SNAPSHOTS=[]; APPR={}; try{ PHOTOS={}; PHOTO_RAW={}; }catch(e){} saveAppr(); load(); rebuildAll(); toast("Datos de ejemplo cargados"); }
