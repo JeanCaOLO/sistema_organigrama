@@ -385,9 +385,25 @@ function canSeeGlobal(){ return ACCESS.scope==="admin"||ACCESS.scope==="global";
 function canSeeAllCountries(){ return ACCESS.scope==="admin"||ACCESS.scope==="global"; }
 function canSeeCountry(c){ if(canSeeAllCountries())return true; if(ACCESS.scope!=="pais")return false; return norm(c||"")===norm(ACCESS.country||""); }
 function allowedCountries(list){ list=list||[]; if(canSeeAllCountries())return list.slice(); return list.filter(c=>canSeeCountry(c)); }
+function chartAllowed(c){ return !!c && (c.type==="global"?canSeeGlobal():canSeeCountry(c.pais||"")); }
+function emptyModel(){ return {persons:[],positions:[],assignments:[],classificationRules:initializeOloClassificationRules(),managerOverrides:[]}; }
+// CONTROL DE ACCESO (rol País): garantiza que el chart activo y el MODELO en memoria sean SOLO de su país.
+// Sin esto, MODEL podía quedar con el último país cargado por otro usuario (olo_orgchart_v3 / "active"
+// son compartidos en Supabase) y el Dashboard/Administrador mostraban datos de otro país.
+function enforceAccessScope(){
+  if(!ACCESS.scope || canSeeAllCountries()) return;
+  const cur=CHART_ID?CHARTS.find(c=>c.id===CHART_ID):null;
+  if(cur && chartAllowed(cur)){ MODEL=cur.model; return; }
+  const own=CHARTS.filter(c=>c.type!=="global" && chartAllowed(c));
+  const pick=own.find(c=>c.type==="country")||own[0];
+  if(pick){ CHART_ID=pick.id; MODEL=pick.model; if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL); }
+  else { CHART_ID=null; MODEL=emptyModel(); }
+}
 function loadAccess(){ try{ const r=localStorage.getItem(K_ACCESS); if(r){ const a=JSON.parse(r); if(a&&a.scope){ ACCESS=a; } } }catch(e){} }
 function saveAccess(){ try{ localStorage.setItem(K_ACCESS, JSON.stringify(ACCESS)); }catch(e){} }
-function logout(){ ACCESS={scope:null,country:"",usuario:"",nombre:""}; try{ localStorage.removeItem(K_ACCESS); }catch(e){} showLogin(); }
+// Al cerrar sesión se recarga la página: la siguiente sesión arranca limpia desde Supabase
+// (evita que quede en memoria el modelo/país del usuario anterior).
+function logout(){ ACCESS={scope:null,country:"",usuario:"",nombre:""}; try{ localStorage.removeItem(K_ACCESS); }catch(e){} try{ location.reload(); }catch(e){ showLogin(); } }
 // Valida usuario/clave contra la tabla olo_usuarios en Supabase.
 async function authenticate(usuario,clave){
   if(!USE_SB){ return {error:"Sin conexión con la base de datos (Supabase). No se puede iniciar sesión."}; }
@@ -459,7 +475,8 @@ function titleCaseName(s){ if(!s)return s; const small=new Set(["de","del","la",
   return s.toString().trim().toLowerCase().replace(/\s+/g," ").split(" ").map((w,i)=>{ if(i>0&&small.has(w))return w; return w.replace(/[a-záéíóúñü]/i,m=>m.toUpperCase()); }).join(" "); }
 let toastT; function toast(m){ const t=document.getElementById("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2600); }
 
-function saveModel(){ try{ localStorage.setItem(K_MODEL, JSON.stringify(MODEL)); }catch(e){} sbPush(K_MODEL, MODEL); if(CHART_ID)saveCharts(); }
+function saveModel(){ if(ACCESS.scope==="pais" && !CHART_ID) return;   // rol País sin chart propio: no pisar el modelo compartido
+  try{ localStorage.setItem(K_MODEL, JSON.stringify(MODEL)); }catch(e){} sbPush(K_MODEL, MODEL); if(CHART_ID)saveCharts(); }
 // Serializa CHARTS SIN fotos base64 embebidas: extrae cada foto a SNAP_PHOTOS (persistente) y
 // deja en la persona solo "photoKey". Así el JSON de CHARTS es pequeño y NO falla al guardar
 // (antes, con fotos, podía reventar localStorage/Supabase y perder países al recargar).
@@ -496,8 +513,8 @@ function addChartFromRows(type,rows){
   CHARTS.push(chart); CHART_ID=chart.id; MODEL=chart.model; saveCharts(); saveModel();
   setView("dash"); toast(chartTypeLabel(type)+" cargado: "+chart.name);
 }
-function selectChart(id){ pushNav(); if(!id){ CHART_ID=null; } else { const c=CHARTS.find(x=>x.id===id); if(c){ CHART_ID=id; MODEL=c.model; if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL); } } saveCharts(); renderDash(); }
-function deleteChart(id){ CHARTS=CHARTS.filter(c=>c.id!==id); if(CHART_ID===id){ CHART_ID=null; } saveCharts(); if(VIEW==="admin")renderAdmin(); if(VIEW==="dash")renderDash(); }
+function selectChart(id){ if(id && !chartAllowed(CHARTS.find(x=>x.id===id))){ toast("Tu perfil no tiene acceso a ese organigrama"); return; } pushNav(); if(!id){ CHART_ID=null; } else { const c=CHARTS.find(x=>x.id===id); if(c){ CHART_ID=id; MODEL=c.model; if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL); } } saveCharts(); renderDash(); }
+function deleteChart(id){ if(!chartAllowed(CHARTS.find(x=>x.id===id))){ toast("Tu perfil no tiene acceso a ese organigrama"); return; } CHARTS=CHARTS.filter(c=>c.id!==id); if(CHART_ID===id){ CHART_ID=null; } saveCharts(); if(VIEW==="admin")renderAdmin(); if(VIEW==="dash")renderDash(); }
 function currentChart(){ return CHART_ID?CHARTS.find(c=>c.id===CHART_ID):null; }
 function removeChartsByType(types,msg){ const set=new Set(types); const before=CHARTS.length;
   CHARTS=CHARTS.filter(c=>!set.has(c.type));
@@ -621,7 +638,8 @@ function fillChartSel(paisOnly){ const el=document.getElementById("chartSel"); i
   el.innerHTML=html; }
 // Cambia entre el modo GLOBAL y el modo PAÍS (lógicas separadas)
 function goMode(m){ if(m==="global"){ if(!canSeeGlobal()){ toast("Tu perfil no tiene acceso al Organigrama Global"); return; } const g=CHARTS.find(c=>c.type==="global"); if(g){ NAVHIST=[]; selectChart(g.id); } else toast("Aún no has cargado el Organigrama Global (botón ① en Administrador)"); }
-  else { const p=CHARTS.find(c=>c.type==="country"); if(p){ NAVHIST=[]; selectChart(p.id); } else toast("Aún no has cargado los Organigramas de País (botón ② en Administrador)"); } }
+  else { const cur=currentChart(); const cp=cur&&cur.type!=="global"?norm(cur.pais||""):null;
+    const p=CHARTS.find(c=>c.type==="country"&&chartAllowed(c)&&(cp==null||norm(c.pais||"")===cp))||CHARTS.find(c=>c.type==="country"&&chartAllowed(c)); if(p){ NAVHIST=[]; selectChart(p.id); } else toast("Aún no has cargado los Organigramas de País (botón ② en Administrador)"); } }
 // Radiografía de los datos guardados: por qué "Todos" exporta lo que exporta.
 function diagCharts(){
   const lines=[];
@@ -1549,6 +1567,7 @@ function invalidateApprovals(){ let ch=false; Object.keys(APPR).forEach(k=>{ if(
 function setView(v){
   // Control de acceso: al Administrador entran Admin y Global (completo) y rol País (recortado).
   if(v==="admin" && ACCESS.scope && !isAdmin() && !canSeeGlobal() && ACCESS.scope!=="pais"){ toast("Tu perfil no tiene acceso al Administrador"); v="dash"; }
+  enforceAccessScope();
   VIEW=v;
   ["Admin","Dash","Repo"].forEach(x=>{ document.getElementById("view"+x).classList.toggle("hidden","view"+x!=="view"+cap(v)); document.getElementById("tab"+x).classList.toggle("active","tab"+x==="tab"+cap(v)); });
   if(v==="admin")renderAdmin(); else if(v==="dash")renderDash(); else if(v==="repo"){ REPO_NAV={year:null,country:null,month:null}; renderRepo(); }
@@ -1569,7 +1588,7 @@ let DASH={type:"global",country:"",rootPositionId:null,page:0};
 let NAVHIST=[];
 function pushNav(){ NAVHIST.push({chart:CHART_ID,dash:JSON.parse(JSON.stringify(DASH))}); if(NAVHIST.length>60)NAVHIST.shift(); }
 function generalChartFor(chartId){ const cur=CHARTS.find(c=>c.id===chartId); const cc=cur?norm(cur.pais||""):null;
-  return CHARTS.find(c=>c.type==="country" && (cc==null||norm(c.pais||"")===cc)) || CHARTS.find(c=>c.type==="country"); }
+  return CHARTS.find(c=>c.type==="country" && chartAllowed(c) && (cc==null||norm(c.pais||"")===cc)) || CHARTS.find(c=>c.type==="country" && chartAllowed(c)); }
 function goBack(){ const gen=generalChartFor(CHART_ID);   // Volver = Organigrama General DEL MISMO país
   if(gen && CHART_ID!==gen.id){ NAVHIST=[]; CHART_ID=gen.id; MODEL=gen.model; saveCharts(); renderDash(); return; }
   const s=NAVHIST.pop(); if(!s){ return; } CHART_ID=s.chart; DASH=s.dash; renderDash(); }
@@ -1610,7 +1629,9 @@ function renderDash(){
   updateBackBtn();
   const autoSeg=document.getElementById("autoSeg"), modeSeg=document.getElementById("modeSeg");
   const seg=["dvGlobal","dvCountry","dvDept","dvArea"];
-  // CONTROL DE ACCESO: si el CHART seleccionado no es del país del perfil, deseleccionarlo.
+  // CONTROL DE ACCESO: rol País -> chart y MODELO siempre de su país (o vacío si no hay).
+  enforceAccessScope();
+  // Si el CHART seleccionado no es del alcance del perfil, deseleccionarlo.
   if(CHART_ID){ const cc=CHARTS.find(x=>x.id===CHART_ID); if(cc && cc.type!=="global" && !canSeeCountry(cc.pais||"")){ CHART_ID=null; } if(cc && cc.type==="global" && !canSeeGlobal()){ CHART_ID=null; } }
   // CONTROL DE ACCESO: perfil de país sin datos de su país -> no mostrar nada de otros países.
   if(!canSeeAllCountries() && !profileHasData()){
@@ -1697,10 +1718,12 @@ function subMatch(p,q){ const c=personDisplay(p.positionId); if(norm(c.cargo).in
 function treeGo(posId){ const p=pos(posId); if(p.isDirector){DASH.type="global";DASH.rootPositionId=null;} else if(p.isCountryManager){DASH.type="country";DASH.country=p.country;DASH.rootPositionId=null;} else {DASH.type=(depthOf(posId)<=3?"department":"area");DASH.rootPositionId=posId;} DASH.page=0; document.querySelectorAll("#dvGlobal,#dvCountry,#dvDept,#dvArea").forEach(b=>b.classList.remove("on")); const bmap={global:"dvGlobal",country:"dvCountry",department:"dvDept",area:"dvArea"}; const b=document.getElementById(bmap[DASH.type]); if(b)b.classList.add("on"); const rs=document.getElementById("rootSel"); if(rs)rs.style.display=(DASH.type==="department"||DASH.type==="area")?"":"none"; document.getElementById("countrySel").style.display=DASH.type==="country"?"":"none"; if(DASH.type==="department")fillRootSel(listDepartmentRoots()); if(DASH.type==="area")fillRootSel(listAreaRoots()); renderDash(); }
 
 /* ===================== ADMINISTRADOR ===================== */
-function renderAdmin(){ renderKpis(); renderValidation(); renderTable(); renderChartList(); }
+function renderAdmin(){ enforceAccessScope(); renderKpis(); renderValidation(); renderTable(); renderChartList(); }
 function renderChartList(){ const el=document.getElementById("chartList"); if(!el)return;
   if(!CHARTS.length){ el.innerHTML='<span class="muted" style="font-size:12px">Aún no has cargado organigramas por archivo.</span>'; return; }
-  const _order={global:0,country:1,department:2,area:3}; el.innerHTML=[...CHARTS].sort((a,b)=>(_order[a.type]-_order[b.type])||(a.name||"").localeCompare(b.name||"","es")).map(c=>`<div class="tools" style="align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)">
+  const vis=CHARTS.filter(chartAllowed);   // control de acceso: solo los organigramas del perfil
+  if(!vis.length){ el.innerHTML='<span class="muted" style="font-size:12px">Aún no has cargado organigramas por archivo.</span>'; return; }
+  const _order={global:0,country:1,department:2,area:3}; el.innerHTML=vis.sort((a,b)=>(_order[a.type]-_order[b.type])||(a.name||"").localeCompare(b.name||"","es")).map(c=>`<div class="tools" style="align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)">
     <b style="min-width:120px">${esc(chartTypeLabel(c.type))}</b><span>${esc(c.name)}</span><div class="spacer"></div>
     <button class="btn ghost sm" onclick="selectChart('${esc(c.id)}');setView('dash')">Ver</button>
     <button class="btn ghost sm" style="border-color:#F0C7C2;color:#A33A30" onclick="deleteChart('${esc(c.id)}')">Eliminar</button></div>`).join(""); }
@@ -2455,7 +2478,10 @@ function setChartsCountry(c){
   const gen=CHARTS.find(ch=>ch.type==="country" && norm(ch.pais||"")===norm(target));
   if(gen){ SELECTED_COUNTRY=target; NAVHIST=[]; CHART_ID=gen.id; MODEL=gen.model; if(Object.keys(PHOTOS).length) applyPhotosToModel(MODEL); saveCharts(); renderDash(); toast("País: "+target); return; }
   // Si no está cargado (p. ej. país sin datos), solo actualiza la etiqueta de los organigramas del país actual.
-  SELECTED_COUNTRY=target; CHARTS.forEach(ch=>{ if(ch.type!=="global") ch.pais=SELECTED_COUNTRY; }); saveCharts(); renderDash(); if(SELECTED_COUNTRY)toast("País: "+SELECTED_COUNTRY); }
+  // OJO: antes re-etiquetaba TODOS los charts de país (mezclaba países). Ahora solo los del país actual.
+  if(ACCESS.scope==="pais" && !canSeeCountry(target)){ toast("Tu perfil solo puede ver "+(ACCESS.country||"tu país")); return; }
+  const cur=currentChart(); const curPais=cur&&cur.type!=="global"?norm(cur.pais||""):null;
+  SELECTED_COUNTRY=target; if(curPais!=null) CHARTS.forEach(ch=>{ if(ch.type!=="global" && norm(ch.pais||"")===curPais) ch.pais=SELECTED_COUNTRY; }); saveCharts(); renderDash(); if(SELECTED_COUNTRY)toast("País: "+SELECTED_COUNTRY); }
 
 // ---- Cargar desde enlace (Google Drive u otra URL) ----
 /* Identifica el ID de un archivo de Drive. Acepta las formas:
